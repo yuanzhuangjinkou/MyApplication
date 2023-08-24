@@ -31,6 +31,7 @@ import org.opencv.android.JavaCameraView;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.calib3d.Calib3d;
+import org.opencv.core.Core;
 import org.opencv.core.DMatch;
 import org.opencv.core.KeyPoint;
 import org.opencv.core.Mat;
@@ -54,8 +55,8 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2 {
 
-    private static final int CAPTURE_INTERVAL = 500; // 0.5 seconds in milliseconds
-    private static final int TOTAL_FRAMES = 10; // 获取10帧
+    private static final int CAPTURE_INTERVAL = 1000; // 0.5 seconds in milliseconds   // 拍摄时间 CAPTURE_INTERVAL * TOTAL_FRAMES
+    private static final int TOTAL_FRAMES = 5; // 获取10帧
     private int frameCount = 0;
     private boolean isCapturing = false;
     private int framesCaptured = 0;
@@ -204,7 +205,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
                 // 保存
                 for (int i = 0; i < capturedImages.size(); i++) {
                     String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-                    String filename = "panorama_son" + i + System.currentTimeMillis() + ".jpg";
+                    String filename = "panorama_" + i + "-" + System.currentTimeMillis() + ".jpg";
                     String fullPath = directory + File.separator + filename;
                     boolean success = Imgcodecs.imwrite(fullPath, capturedImages.get(i));
                     MediaScannerConnection.scanFile(this, new String[]{fullPath}, null, null);
@@ -230,7 +231,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         Mat stitched = stitchMultipleImages(capturedImages);
 
         String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String filename = "panorama_pj" + System.currentTimeMillis() + ".jpg";
+        String filename = "panorama_p" + System.currentTimeMillis() + ".jpg";
         String fullPath = directory + File.separator + filename;
         boolean success = Imgcodecs.imwrite(fullPath, stitched);
         MediaScannerConnection.scanFile(this, new String[]{fullPath}, null, null);
@@ -241,55 +242,55 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     public static Mat stitchMultipleImages(List<Mat> images) {
         List<Mat> descriptors = new ArrayList<>();
-        List<MatOfKeyPoint> keypoints = new ArrayList<>();
+        List<MatOfKeyPoint> allKeypoints = new ArrayList<>();
 
-        // 1. 特征检测与描述子提取
         ORB detector = ORB.create();
+
+        // Detect keypoints and compute descriptors
         for (Mat img : images) {
-            MatOfKeyPoint keypoint = new MatOfKeyPoint();
+            MatOfKeyPoint keypoints = new MatOfKeyPoint();
             Mat descriptor = new Mat();
-            detector.detectAndCompute(img, new Mat(), keypoint, descriptor);
+            detector.detectAndCompute(img, new Mat(), keypoints, descriptor);
+            allKeypoints.add(keypoints);
             descriptors.add(descriptor);
-            keypoints.add(keypoint);
         }
 
-        // 2. 特征匹配
         BFMatcher matcher = BFMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING);
+
         List<Mat> homographies = new ArrayList<>();
+
+        // Calculate homographies
         for (int i = 1; i < images.size(); i++) {
-            List<MatOfDMatch> knnMatches = new ArrayList<>();
-            matcher.knnMatch(descriptors.get(i-1), descriptors.get(i), knnMatches, 2);
+            MatOfDMatch matches = new MatOfDMatch();
+            matcher.match(descriptors.get(i - 1), descriptors.get(i), matches);
 
-            List<Point> obj = new ArrayList<>();
-            List<Point> scene = new ArrayList<>();
+            List<Point> pts1 = new ArrayList<>();
+            List<Point> pts2 = new ArrayList<>();
 
-            for (MatOfDMatch match : knnMatches) {
-                if (match.rows() > 1) {
-                    DMatch[] dmatches = match.toArray();
-                    if (dmatches[0].distance < 0.8 * dmatches[1].distance) {
-                        obj.add(keypoints.get(i-1).toList().get(dmatches[0].queryIdx).pt);
-                        scene.add(keypoints.get(i).toList().get(dmatches[0].trainIdx).pt);
-                    }
-                }
+            for (DMatch match : matches.toList()) {
+                pts1.add(allKeypoints.get(i - 1).toList().get(match.queryIdx).pt);
+                pts2.add(allKeypoints.get(i).toList().get(match.trainIdx).pt);
             }
 
-            MatOfPoint2f objMat = new MatOfPoint2f();
-            MatOfPoint2f sceneMat = new MatOfPoint2f();
-            objMat.fromList(obj);
-            sceneMat.fromList(scene);
+            MatOfPoint2f objPts = new MatOfPoint2f();
+            MatOfPoint2f scenePts = new MatOfPoint2f();
+            objPts.fromList(pts1);
+            scenePts.fromList(pts2);
 
-            // 3. 几何验证
-            Mat H = Calib3d.findHomography(objMat, sceneMat, Calib3d.RANSAC, 5);
+            Mat H = Calib3d.findHomography(objPts, scenePts, Calib3d.RANSAC, 3.0);
             homographies.add(H);
         }
 
-        // 4. & 5. 逐步拼接图片
         Mat panorama = images.get(0).clone();
+
         for (int i = 1; i < images.size(); i++) {
             Mat result = new Mat();
-            Imgproc.warpPerspective(panorama, result, homographies.get(i-1), new Size(panorama.cols() + images.get(i).cols(), panorama.rows()));
-            Mat submat = result.submat(0, images.get(i).rows(), panorama.cols(), panorama.cols() + images.get(i).cols());
-            images.get(i).copyTo(submat);
+
+            Imgproc.warpPerspective(panorama, result, homographies.get(i - 1), new Size(panorama.cols() + images.get(i).cols(), panorama.rows()));
+
+            Mat half = new Mat(result, new Rect(0, 0, images.get(i).cols(), images.get(i).rows()));
+            Core.addWeighted(half, 0.5, images.get(i), 0.5, 0.0, half);
+
             panorama = result;
         }
 
