@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
             showToast("图片已捕获"); // 显示Toast提示图片已捕获
-            unlockFocus(); // 解锁焦点，准备下一次拍摄
+//            unlockFocus(); // 解锁焦点，准备下一次拍摄
         }
     };
 
@@ -235,7 +235,7 @@ public class MainActivity extends AppCompatActivity {
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
             // 开始捕获图像，捕获后调用 captureCallback 进行后续处理
             cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, backgroundHandler);
-        } catch (CameraAccessException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -250,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
             cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, backgroundHandler);
             // 将自动对焦触发器设置为闲置状态
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
-        } catch (CameraAccessException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -258,33 +258,21 @@ public class MainActivity extends AppCompatActivity {
 
     // 拍摄照片的方法
     private void takePicture() {
-        // 如果相机设备为空，退出方法
+        // 检查相机设备是否为空，如果为空则退出方法
         if (cameraDevice == null) {
             return;
         }
         try {
             // 创建用于拍照的捕获请求，使用预定义的 TEMPLATE_STILL_CAPTURE 模板
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            // 将图像输出目标设置为ImageReader的Surface
+
+            // 将图像输出目标设置为ImageReader的Surface，以便保存捕获的图像
             captureRequestBuilder.addTarget(imageReader.getSurface());
-            // 设置自动对焦模式为连续图片
+
+            // 设置自动对焦模式为连续图片，确保照片清晰
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
 
-            // 创建捕获回调，用于在图像捕获完成后执行操作
-            CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
-                @Override
-                public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                    super.onCaptureCompleted(session, request, result);
-                    // 拍照完成后，锁定焦点以准备下一次拍摄
-                    lockFocus();
-                }
-            };
-
-            // 停止连续预览
-            cameraCaptureSession.stopRepeating();
-            // 取消正在进行的捕获操作
-            cameraCaptureSession.abortCaptures();
-            // 开始捕获图像，捕获后调用 captureCallback 进行后续处理
+            // 使用相机捕获会话开始捕获图像，捕获后调用 captureCallback 进行后续处理
             cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, null);
         } catch (CameraAccessException e) {
             e.printStackTrace();
