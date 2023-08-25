@@ -20,4 +20,14 @@
             android:layout_centerHorizontal="true"
             android:layout_marginBottom="16dp" />
 
+    <Button
+            android:id="@+id/otherButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="拼接"
+            android:layout_toRightOf="@id/captureButton"
+            android:layout_alignTop="@id/captureButton"
+            android:layout_alignBottom="@id/captureButton"
+            android:layout_marginLeft="16dp" />
+
 </RelativeLayout>

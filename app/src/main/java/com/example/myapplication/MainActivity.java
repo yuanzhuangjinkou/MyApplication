@@ -5,10 +5,18 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
-import android.hardware.camera2.*;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.*;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -22,7 +30,25 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.io.*;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.calib3d.Calib3d;
+import org.opencv.core.CvType;
+import org.opencv.core.DMatch;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfDMatch;
+import org.opencv.core.MatOfKeyPoint;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
+import org.opencv.features2d.BFMatcher;
+import org.opencv.features2d.SIFT;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.osgi.OpenCVNativeLoader;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,6 +76,16 @@ public class MainActivity extends AppCompatActivity {
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
 
+
+    private int captureCount = 0;
+    // 间隔时间
+    private final int CAPTURE_INTERVAL = 500;
+    private final int CAPTURE_COUNT = 5;
+
+    private List<Image> images = new ArrayList<>();
+    private List<ByteBuffer> imageList = new ArrayList<>();
+
+    private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
@@ -78,20 +114,21 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }, CAPTURE_INTERVAL); //0.5 seconds delay
             }
+
         }
     }
 
-    private int captureCount = 0;
-    // 间隔时间
-    private final int CAPTURE_INTERVAL = 2000;
-    private final int CAPTURE_COUNT = 5;
-
-    private List<Image> images = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        if (!OpenCVLoader.initDebug()) {
+            Log.e(TAG, "OpenCV initialization failed.");
+        } else {
+            Log.d(TAG, "OpenCV initialization succeeded.");
+        }
 
         // 初始化界面元素
         textureView = findViewById(R.id.textureView);
@@ -105,7 +142,13 @@ public class MainActivity extends AppCompatActivity {
                 takeContinuousPictures();
             }
         });
-
+        Button panorama = findViewById(R.id.otherButton);
+        panorama.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stitchImages(matList);
+            }
+        });
 
         // 获取相机管理器
         cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -203,6 +246,8 @@ public class MainActivity extends AppCompatActivity {
         imageReader.setOnImageAvailableListener(imageReaderListener, backgroundHandler);
     }
 
+    private int height = 0;
+    private int width = 0;
 
     // 创建一个监听ImageReader的图像可用事件的监听器
     private final ImageReader.OnImageAvailableListener imageReaderListener = new ImageReader.OnImageAvailableListener() {
@@ -210,9 +255,13 @@ public class MainActivity extends AppCompatActivity {
         public void onImageAvailable(ImageReader reader) {
             Image image = null;
             try {
-                // 获取最新可用的图像
                 image = reader.acquireLatestImage();
-                images.add(image);
+                // 获取最新可用的图像
+                if (image != null) {
+                    String s = imageToBase64(image);
+                    Mat mat = base64ToMat(s);
+                    matList.add(mat);
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
@@ -220,6 +269,31 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     };
+
+    public String imageToBase64(Image image) {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return java.util.Base64.getEncoder().encodeToString(bytes);
+    }
+
+    public static Mat base64ToMat(String base64Image) throws IOException {
+        // 解码 Base64 图片数据
+        byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
+
+        // 创建 ByteArrayInputStream 以读取字节数组
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
+
+        // 使用 OpenCV 加载图像
+        Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
+
+        // 调整图像尺寸（可选）
+        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 480);
+        Imgproc.resize(imageMat, imageMat, newSize);
+
+        return imageMat;
+    }
+
 
     // 锁定焦点的方法，触发自动对焦操作
     private void lockFocus() {
@@ -431,6 +505,76 @@ public class MainActivity extends AppCompatActivity {
             imageReader.close();
             imageReader = null;
         }
+    }
+
+    private Mat stitchImages(List<Mat> mats) {
+
+// 选择第一张图像作为参考图像 (或选择中间的图像)
+        Mat panorama = mats.get(0);
+
+        // 初始化SIFT检测器
+        SIFT sift = SIFT.create();
+
+        for (int i = 1; i < mats.size(); i++) {
+            Mat img = mats.get(i);
+
+            // 检测关键点和提取描述符
+            MatOfKeyPoint keypoints1 = new MatOfKeyPoint();
+            MatOfKeyPoint keypoints2 = new MatOfKeyPoint();
+            Mat descriptors1 = new Mat();
+            Mat descriptors2 = new Mat();
+
+            sift.detectAndCompute(panorama, new Mat(), keypoints1, descriptors1);
+            sift.detectAndCompute(img, new Mat(), keypoints2, descriptors2);
+
+            // 使用BFMatcher匹配描述符
+            BFMatcher matcher = BFMatcher.create();
+            List<MatOfDMatch> matches = new ArrayList<>();
+            matcher.knnMatch(descriptors1, descriptors2, matches, 2);
+
+            // 通过比率测试筛选好的匹配
+            List<DMatch> goodMatches = new ArrayList<>();
+            for (MatOfDMatch matOfDMatch : matches) {
+                if (matOfDMatch.toArray()[0].distance < 0.75 * matOfDMatch.toArray()[1].distance) {
+                    goodMatches.add(matOfDMatch.toArray()[0]);
+                }
+            }
+
+            // 计算单应性矩阵
+            List<Point> pts1 = new ArrayList<>();
+            List<Point> pts2 = new ArrayList<>();
+
+            for (DMatch match : goodMatches) {
+                pts1.add(keypoints1.toList().get(match.queryIdx).pt);
+                pts2.add(keypoints2.toList().get(match.trainIdx).pt);
+            }
+
+            Mat H = Calib3d.findHomography(new MatOfPoint2f(pts2.toArray(new Point[0])),
+                    new MatOfPoint2f(pts1.toArray(new Point[0])));
+
+            // 使用单应性矩阵变换图像
+            Mat warpImage = new Mat();
+            Imgproc.warpPerspective(img, warpImage, H, new org.opencv.core.Size(panorama.cols() + img.cols(), panorama.rows()));
+
+            // 将参考图像拷贝到结果图像上
+            Mat subImage = new Mat(warpImage, new Rect(0, 0, panorama.cols(), panorama.rows()));
+            panorama.copyTo(subImage);
+
+            // 更新panorama为当前的拼接结果
+            panorama = warpImage;
+        }
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+//            images.forEach(Image::close);
+//        }
+// 最后，`panorama`是拼接后的全景图
+        return panorama;
+    }
+
+    public Mat imageToMat(Image image) {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();  // 为简单起见，这里只考虑第一个平面，例如JPEG格式
+        Mat rgbMat = new Mat(image.getWidth(), image.getHeight(), CvType.CV_8UC3, buffer);
+        return rgbMat;
+
     }
 
 }
