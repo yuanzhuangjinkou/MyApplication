@@ -56,10 +56,33 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
-            showToast("图片已捕获"); // 显示Toast提示图片已捕获
-//            unlockFocus(); // 解锁焦点，准备下一次拍摄
+            showToast("图片已捕获");
+            backgroundHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (this) {
+                        captureCount++;
+                    }
+                }
+            });
         }
     };
+
+    private void takeContinuousPictures() {
+        synchronized (this) {
+            if (captureCount < 10) {
+                takePicture();
+                backgroundHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        takeContinuousPictures();
+                    }
+                }, 2000); //0.5 seconds delay
+            }
+        }
+    }
+
+    private int captureCount = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,9 +97,11 @@ public class MainActivity extends AppCompatActivity {
         captureButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                takePicture();
+                captureCount = 0;
+                takeContinuousPictures();
             }
         });
+
 
         // 获取相机管理器
         cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
