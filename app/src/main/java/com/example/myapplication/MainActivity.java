@@ -46,9 +46,6 @@ public class MainActivity extends AppCompatActivity {
     private CaptureRequest.Builder captureRequestBuilder;
     private ImageReader imageReader;
 
-    // 图片保存文件夹
-    private File galleryFolder;
-
     // 后台线程和处理程序
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
@@ -116,23 +113,8 @@ public class MainActivity extends AppCompatActivity {
         // 设置 TextureView 的监听器
         textureView.setSurfaceTextureListener(textureListener);
 
-        // 创建保存图片的文件夹
-        createImageGallery();
-
         // 启动后台线程
         startBackgroundThread();
-    }
-
-    // 创建用于保存图片的文件夹
-    private void createImageGallery() {
-        File storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-        galleryFolder = new File(storageDirectory, "Camera2APIDemo");
-        if (!galleryFolder.exists()) {
-            boolean created = galleryFolder.mkdirs();
-            if (!created) {
-                Log.e(TAG, "Failed to create gallery folder.");
-            }
-        }
     }
 
     // 启动后台线程
@@ -231,14 +213,6 @@ public class MainActivity extends AppCompatActivity {
                 // 获取最新可用的图像
                 image = reader.acquireLatestImage();
                 images.add(image);
-//                // 获取图像的第一个平面（通常是图像数据）
-//                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-//                // 创建一个字节数组，用于存储图像数据
-//                byte[] bytes = new byte[buffer.capacity()];
-//                // 将图像数据从缓冲区复制到字节数组
-//                buffer.get(bytes);
-//                // 将图像保存到文件
-//                saveImage(bytes);
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
@@ -246,15 +220,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     };
-    // 保存图像到文件
-    private void saveImage(byte[] bytes) throws IOException {
-        File imageFile = new File(galleryFolder, "IMG_" + System.currentTimeMillis() + ".jpg");
-        try (FileOutputStream output = new FileOutputStream(imageFile)) {
-            output.write(bytes);
-        }
-        showToast("图片保存路径: " + imageFile.getAbsolutePath());
-    }
-
 
     // 锁定焦点的方法，触发自动对焦操作
     private void lockFocus() {
