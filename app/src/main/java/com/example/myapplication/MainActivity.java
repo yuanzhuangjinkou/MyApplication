@@ -24,7 +24,9 @@ import androidx.core.content.ContextCompat;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -70,19 +72,24 @@ public class MainActivity extends AppCompatActivity {
 
     private void takeContinuousPictures() {
         synchronized (this) {
-            if (captureCount < 10) {
+            if (captureCount < CAPTURE_COUNT) {
                 takePicture();
                 backgroundHandler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
                         takeContinuousPictures();
                     }
-                }, 2000); //0.5 seconds delay
+                }, CAPTURE_INTERVAL); //0.5 seconds delay
             }
         }
     }
 
     private int captureCount = 0;
+    // 间隔时间
+    private final int CAPTURE_INTERVAL = 2000;
+    private final int CAPTURE_COUNT = 5;
+
+    private List<Image> images = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -223,26 +230,22 @@ public class MainActivity extends AppCompatActivity {
             try {
                 // 获取最新可用的图像
                 image = reader.acquireLatestImage();
-                // 获取图像的第一个平面（通常是图像数据）
-                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                // 创建一个字节数组，用于存储图像数据
-                byte[] bytes = new byte[buffer.capacity()];
-                // 将图像数据从缓冲区复制到字节数组
-                buffer.get(bytes);
-                // 将图像保存到文件
-                saveImage(bytes);
-            } catch (IOException e) {
+                images.add(image);
+//                // 获取图像的第一个平面（通常是图像数据）
+//                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+//                // 创建一个字节数组，用于存储图像数据
+//                byte[] bytes = new byte[buffer.capacity()];
+//                // 将图像数据从缓冲区复制到字节数组
+//                buffer.get(bytes);
+//                // 将图像保存到文件
+//                saveImage(bytes);
+            } catch (Exception e) {
                 e.printStackTrace();
             } finally {
-                if (image != null) {
-                    // 关闭图像以释放资源
-                    image.close();
-                }
+                image.close();
             }
         }
     };
-
-
     // 保存图像到文件
     private void saveImage(byte[] bytes) throws IOException {
         File imageFile = new File(galleryFolder, "IMG_" + System.currentTimeMillis() + ".jpg");
