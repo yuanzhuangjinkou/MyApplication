@@ -43,6 +43,7 @@ import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfDMatch;
 import org.opencv.core.MatOfKeyPoint;
+import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
@@ -92,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
     // 间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     // 拍摄次数
-    private final int CAPTURE_COUNT = 5;
+    private final int CAPTURE_COUNT = 3;
 
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
@@ -156,7 +157,9 @@ public class MainActivity extends AppCompatActivity {
         panorama.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Mat panorama = stitchImages(matList);
+                Mat panorama = stitchImages(matList);;
+                Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_GRAY2RGB);
+                int channels = panorama.channels();
                 String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
                 String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
                 String fullPath = directory + File.separator + filename;
@@ -503,31 +506,33 @@ public class MainActivity extends AppCompatActivity {
 
     private Mat stitchImages(List<Mat> mats) {
 
-        int k = 0;
-        for (Mat mat : mats) {
-            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String filename = "mat" + (k ++) + "-" + System.currentTimeMillis() + ".jpg";
-            String fullPath = directory + File.separator + filename;
-            boolean success = Imgcodecs.imwrite(fullPath, mat);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-        }
+//        int k = 0;
+//        for (Mat mat : mats) {
+//            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//            String filename = "mat" + (k ++) + "-" + System.currentTimeMillis() + ".jpg";
+//            String fullPath = directory + File.separator + filename;
+//            boolean success = Imgcodecs.imwrite(fullPath, mat);
+//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+//        }
 
         Mat panorama = mats.get(0);
-//        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_BGR2GRAY);
+        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_RGB2GRAY);
         for (int i = 1; i < mats.size(); i++) {
-            panorama = stitchImagesT(panorama, mats.get(i));
+            panorama = stitchImagesT(panorama, mats.get(i), i);
+
             String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String pfilename = "stitching" + "-" + System.currentTimeMillis() + ".jpg";
+            String pfilename = "stitching灰度之后" + i + "-" + System.currentTimeMillis() + ".jpg";
             String pfullPath = pdirectory + File.separator + pfilename;
             boolean psuccess = Imgcodecs.imwrite(pfullPath, panorama);
             MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
         }
         return panorama;
     }
+
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight, int z) {
         // 将彩色图像转换为灰度图像
-//        Imgproc.cvtColor(imgRight, imgRight, Imgproc.COLOR_BGR2GRAY);
+        Imgproc.cvtColor(imgRight, imgRight, Imgproc.COLOR_RGB2GRAY);
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
@@ -560,11 +565,11 @@ public class MainActivity extends AppCompatActivity {
         Mat outputImage = new Mat();
         Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat, outputImage);
         //
-        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String filename = "outputImage" + "-" + System.currentTimeMillis() + ".jpg";
-        String fullPath = directory + File.separator + filename;
-        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+//        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//        String filename = "outputImage" + "-" + System.currentTimeMillis() + ".jpg";
+//        String fullPath = directory + File.separator + filename;
+//        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
+//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
 
         // 获取匹配点的关键点
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
@@ -585,21 +590,77 @@ public class MainActivity extends AppCompatActivity {
         dstPoints.fromList(pointsRight);
 
         // 计算单应性矩阵H
-        Mat H = Calib3d.findHomography(srcPoints, dstPoints, Calib3d.RANSAC);
-
+        Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
         Mat imgResult = new Mat();
-        Imgproc.warpPerspective(imgLeft, imgResult, H, new org.opencv.core.Size(imgLeft.cols() + imgRight.cols(), imgLeft.rows()));
-
-        Mat submat = imgResult.submat(new Rect(imgLeft.cols(), 0, imgRight.cols(), imgRight.rows()));
-        imgRight.copyTo(submat);
-
+        //对image_right进行透视变换
+        Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
 //        String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//        String pfilename = "stitching" + "-" + System.currentTimeMillis() + ".jpg";
+//        String pfilename = "透视变换" + "-" + System.currentTimeMillis() + ".jpg";
 //        String pfullPath = pdirectory + File.separator + pfilename;
-//        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgResult);
+//        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgRight);
 //        MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
 
+        //将image_left拷贝到透视变换后的图片上，完成图像拼接
+        imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+
+        // 优化接缝
+        int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
+        int start = imgLeft.cols() - overlapWidth;
+        int end = imgLeft.cols();
+        double minDiff = Double.MAX_VALUE;
+        for (int i = start; i < end; i++) {
+            Mat leftEdge = imgLeft.colRange(i, i + 1);
+            Mat rightEdgeInResult = imgResult.colRange(i, i + 1);
+            double diff = Core.norm(leftEdge, rightEdgeInResult, Core.NORM_L1);
+            if (diff < minDiff) {
+                minDiff = diff;
+                start = i;
+            }
+        }
+        optimizeSeam(imgLeft, imgResult.colRange(start, end), imgResult);
+
+        String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String pfilename = "stitching灰度之前" + z + "-" + System.currentTimeMillis() + ".jpg";
+        String pfullPath = pdirectory + File.separator + pfilename;
+        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgResult);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
+
+
+        // 裁剪黑色边缘
+        int lastCol = imgResult.cols() - 1;
+        for (; lastCol >= 0; lastCol--) {
+            Mat col = imgResult.col(lastCol);
+            if (Core.countNonZero(col) > 0) {
+                break;
+            }
+        }
+        imgResult = imgResult.colRange(0, lastCol + 1);
+//        Mat mask = new Mat(imgResult.size(), CvType.CV_8UC1, new Scalar(255));  // 默认所有为白色
+//        Imgproc.warpPerspective(new Mat(imgRight.size(), CvType.CV_8UC1, new Scalar(255)), mask, H, imgResult.size());
+
         return imgResult;
+    }
+
+    public static void optimizeSeam(Mat img1, Mat img2, Mat dst) {
+        int start = Math.max(0, img1.cols() - img2.cols());
+        int end = img1.cols();
+        int h = img1.rows();
+
+        for (int j = start; j < end; j++) {
+            for (int i = 0; i < h; i++) {
+                double alpha = (double) (j - start) / (end - start); // 计算权值
+
+                double[] pixel1 = img1.get(i, j);
+                double[] pixel2 = img2.get(i, j - img1.cols() + img2.cols());
+
+                // 使用加权平均法进行像素混合
+                double[] pixel = new double[pixel1.length];
+                for (int k = 0; k < pixel1.length; k++) {
+                    pixel[k] = pixel1[k] * (1 - alpha) + pixel2[k] * alpha;
+                }
+                dst.put(i, j, pixel);
+            }
+        }
     }
 
 }
