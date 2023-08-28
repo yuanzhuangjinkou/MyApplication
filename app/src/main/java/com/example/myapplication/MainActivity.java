@@ -35,8 +35,10 @@ import androidx.core.content.ContextCompat;
 
 import org.opencv.android.OpenCVLoader;
 import org.opencv.calib3d.Calib3d;
+import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.DMatch;
+import org.opencv.core.KeyPoint;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.core.MatOfDMatch;
@@ -44,7 +46,11 @@ import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
 import org.opencv.features2d.BFMatcher;
+import org.opencv.features2d.DescriptorMatcher;
+import org.opencv.features2d.Features2d;
+import org.opencv.features2d.ORB;
 import org.opencv.features2d.SIFT;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -84,9 +90,9 @@ public class MainActivity extends AppCompatActivity {
 
     private int captureCount = 0;
     // 间隔时间
-    private final int CAPTURE_INTERVAL = 500;
+    private final int CAPTURE_INTERVAL = 1000;
     // 拍摄次数
-    private final int CAPTURE_COUNT = 2;
+    private final int CAPTURE_COUNT = 5;
 
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
@@ -94,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
-            showToast("图片已捕获");
+            showToast("图片已捕获: " + captureCount);
             backgroundHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -156,6 +162,7 @@ public class MainActivity extends AppCompatActivity {
                 String fullPath = directory + File.separator + filename;
                 boolean success = Imgcodecs.imwrite(fullPath, panorama);
                 MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+                showToast("全景图已生成");
             }
         });
 
@@ -258,6 +265,7 @@ public class MainActivity extends AppCompatActivity {
     private int height = 0;
     private int width = 0;
 
+    private Mat pmat = null;
     // 创建一个监听ImageReader的图像可用事件的监听器
     private final ImageReader.OnImageAvailableListener imageReaderListener = new ImageReader.OnImageAvailableListener() {
         @Override
@@ -270,6 +278,10 @@ public class MainActivity extends AppCompatActivity {
                     String s = imageToBase64(image);
                     Mat mat = base64ToMat(s);
                     matList.add(mat);
+//                    if(matList.size() == 1)
+//                        pmat = mat;
+//                    else
+//                        pmat = stitchImagesTwo(pmat, mat);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -302,35 +314,6 @@ public class MainActivity extends AppCompatActivity {
 
         return imageMat;
     }
-
-
-    // 锁定焦点的方法，触发自动对焦操作
-    private void lockFocus() {
-        try {
-            // 设置捕获请求的自动对焦触发器为开始状态
-            captureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
-            // 开始捕获图像，捕获后调用 captureCallback 进行后续处理
-            cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, backgroundHandler);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-
-    // 解锁焦点的方法，取消自动对焦触发并将其设置为闲置状态
-    private void unlockFocus() {
-        try {
-            // 取消自动对焦触发
-            captureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
-            // 捕获图像，捕获后调用 captureCallback 进行后续处理
-            cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, backgroundHandler);
-            // 将自动对焦触发器设置为闲置状态
-            captureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
 
     // 拍摄照片的方法
     private void takePicture() {
@@ -520,72 +503,103 @@ public class MainActivity extends AppCompatActivity {
 
     private Mat stitchImages(List<Mat> mats) {
 
-// 选择第一张图像作为参考图像 (或选择中间的图像)
-        Mat panorama = mats.get(0);
-
-        // 初始化SIFT检测器
-        SIFT sift = SIFT.create();
-
-        for (int i = 1; i < mats.size(); i++) {
-            Mat img = mats.get(i);
-            // 保存
+        int k = 0;
+        for (Mat mat : mats) {
             String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String filename = "panorama_child" + "-" + System.currentTimeMillis() + ".jpg";
+            String filename = "mat" + (k ++) + "-" + System.currentTimeMillis() + ".jpg";
             String fullPath = directory + File.separator + filename;
-            boolean success = Imgcodecs.imwrite(fullPath, img);
+            boolean success = Imgcodecs.imwrite(fullPath, mat);
             MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-
-            // 检测关键点和提取描述符
-            MatOfKeyPoint keypoints1 = new MatOfKeyPoint();
-            MatOfKeyPoint keypoints2 = new MatOfKeyPoint();
-            Mat descriptors1 = new Mat();
-            Mat descriptors2 = new Mat();
-
-            sift.detectAndCompute(panorama, new Mat(), keypoints1, descriptors1);
-            sift.detectAndCompute(img, new Mat(), keypoints2, descriptors2);
-
-            // 使用BFMatcher匹配描述符
-            BFMatcher matcher = BFMatcher.create();
-            List<MatOfDMatch> matches = new ArrayList<>();
-            matcher.knnMatch(descriptors1, descriptors2, matches, 2);
-
-            // 通过比率测试筛选好的匹配
-            List<DMatch> goodMatches = new ArrayList<>();
-            for (MatOfDMatch matOfDMatch : matches) {
-                if (matOfDMatch.toArray()[0].distance < 0.75 * matOfDMatch.toArray()[1].distance) {
-                    goodMatches.add(matOfDMatch.toArray()[0]);
-                }
-            }
-
-            // 计算单应性矩阵
-            List<Point> pts1 = new ArrayList<>();
-            List<Point> pts2 = new ArrayList<>();
-
-            for (DMatch match : goodMatches) {
-                pts1.add(keypoints1.toList().get(match.queryIdx).pt);
-                pts2.add(keypoints2.toList().get(match.trainIdx).pt);
-            }
-
-            Mat H = Calib3d.findHomography(new MatOfPoint2f(pts2.toArray(new Point[0])),
-                    new MatOfPoint2f(pts1.toArray(new Point[0])));
-
-            // 使用单应性矩阵变换图像
-            Mat warpImage = new Mat();
-            Imgproc.warpPerspective(img, warpImage, H, new org.opencv.core.Size(panorama.cols() + img.cols(), panorama.rows()));
-
-            // 将参考图像拷贝到结果图像上
-            Mat subImage = new Mat(warpImage, new Rect(0, 0, panorama.cols(), panorama.rows()));
-            panorama.copyTo(subImage);
-
-            // 更新panorama为当前的拼接结果
-            panorama = warpImage;
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            mats.forEach(Mat::clone);
+
+        Mat panorama = mats.get(0);
+//        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_BGR2GRAY);
+        for (int i = 1; i < mats.size(); i++) {
+            panorama = stitchImagesT(panorama, mats.get(i));
+            String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+            String pfilename = "stitching" + "-" + System.currentTimeMillis() + ".jpg";
+            String pfullPath = pdirectory + File.separator + pfilename;
+            boolean psuccess = Imgcodecs.imwrite(pfullPath, panorama);
+            MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
         }
-        // 最后，`panorama`是拼接后的全景图
         return panorama;
     }
+    // 图像拼接函数
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
+        // 将彩色图像转换为灰度图像
+//        Imgproc.cvtColor(imgRight, imgRight, Imgproc.COLOR_BGR2GRAY);
 
+        // 检测SIFT关键点和描述子
+        SIFT sift = SIFT.create();
+        MatOfKeyPoint keypointsLeft = new MatOfKeyPoint();
+        MatOfKeyPoint keypointsRight = new MatOfKeyPoint();
+        Mat descriptorsLeft = new Mat();
+        Mat descriptorsRight = new Mat();
+        sift.detectAndCompute(imgLeft, new Mat(), keypointsLeft, descriptorsLeft);
+        sift.detectAndCompute(imgRight, new Mat(), keypointsRight, descriptorsRight);
+
+        // 使用KNN匹配特征点
+        BFMatcher bfMatcher = BFMatcher.create(Core.NORM_L2, false);
+        List<MatOfDMatch> knnMatches = new ArrayList<>();
+        bfMatcher.knnMatch(descriptorsLeft, descriptorsRight, knnMatches, 2);
+
+        List<DMatch> goodMatches = new ArrayList<>();
+        float ratioThreshold = 0.7f;
+        for (MatOfDMatch knnMatch : knnMatches) {
+            DMatch[] matches = knnMatch.toArray();
+            if (matches[0].distance < ratioThreshold * matches[1].distance) {
+                goodMatches.add(matches[0]);
+            }
+        }
+
+        // 筛选出较好的匹配点
+        MatOfDMatch goodMatchesMat = new MatOfDMatch();
+        goodMatchesMat.fromList(goodMatches);
+
+        // 绘制匹配结果
+        Mat outputImage = new Mat();
+        Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat, outputImage);
+        //
+        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String filename = "outputImage" + "-" + System.currentTimeMillis() + ".jpg";
+        String fullPath = directory + File.separator + filename;
+        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+
+        // 获取匹配点的关键点
+        List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
+        List<KeyPoint> keypointsRightList = keypointsRight.toList();
+
+        // 构建匹配点的特征点坐标
+        List<Point> pointsLeft = new ArrayList<>();
+        List<Point> pointsRight = new ArrayList<>();
+        for (DMatch match : goodMatches) {
+            pointsLeft.add(keypointsLeftList.get(match.queryIdx).pt);
+            pointsRight.add(keypointsRightList.get(match.trainIdx).pt);
+        }
+
+        // 将特征点坐标转换为MatOfPoint2f格式
+        MatOfPoint2f srcPoints = new MatOfPoint2f();
+        MatOfPoint2f dstPoints = new MatOfPoint2f();
+        srcPoints.fromList(pointsLeft);
+        dstPoints.fromList(pointsRight);
+
+        // 计算单应性矩阵H
+        Mat H = Calib3d.findHomography(srcPoints, dstPoints, Calib3d.RANSAC);
+
+        Mat imgResult = new Mat();
+        Imgproc.warpPerspective(imgLeft, imgResult, H, new org.opencv.core.Size(imgLeft.cols() + imgRight.cols(), imgLeft.rows()));
+
+        Mat submat = imgResult.submat(new Rect(imgLeft.cols(), 0, imgRight.cols(), imgRight.rows()));
+        imgRight.copyTo(submat);
+
+//        String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//        String pfilename = "stitching" + "-" + System.currentTimeMillis() + ".jpg";
+//        String pfullPath = pdirectory + File.separator + pfilename;
+//        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgResult);
+//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
+
+        return imgResult;
+    }
 
 }
