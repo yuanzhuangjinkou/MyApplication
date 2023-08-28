@@ -14,7 +14,10 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaScannerConnection;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -48,6 +51,8 @@ import org.opencv.imgproc.Imgproc;
 import org.opencv.osgi.OpenCVNativeLoader;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -80,10 +85,8 @@ public class MainActivity extends AppCompatActivity {
     private int captureCount = 0;
     // 间隔时间
     private final int CAPTURE_INTERVAL = 500;
-    private final int CAPTURE_COUNT = 5;
-
-    private List<Image> images = new ArrayList<>();
-    private List<ByteBuffer> imageList = new ArrayList<>();
+    // 拍摄次数
+    private final int CAPTURE_COUNT = 2;
 
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
@@ -139,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 captureCount = 0;
+                matList.clear();
                 takeContinuousPictures();
             }
         });
@@ -146,7 +150,12 @@ public class MainActivity extends AppCompatActivity {
         panorama.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                stitchImages(matList);
+                Mat panorama = stitchImages(matList);
+                String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+                String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+                String fullPath = directory + File.separator + filename;
+                boolean success = Imgcodecs.imwrite(fullPath, panorama);
+                MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
             }
         });
 
@@ -332,6 +341,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             // 创建用于拍照的捕获请求，使用预定义的 TEMPLATE_STILL_CAPTURE 模板
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            // 图片顺时针旋转90度
+            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90);
 
             // 将图像输出目标设置为ImageReader的Surface，以便保存捕获的图像
             captureRequestBuilder.addTarget(imageReader.getSurface());
@@ -517,6 +528,12 @@ public class MainActivity extends AppCompatActivity {
 
         for (int i = 1; i < mats.size(); i++) {
             Mat img = mats.get(i);
+            // 保存
+            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+            String filename = "panorama_child" + "-" + System.currentTimeMillis() + ".jpg";
+            String fullPath = directory + File.separator + filename;
+            boolean success = Imgcodecs.imwrite(fullPath, img);
+            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
 
             // 检测关键点和提取描述符
             MatOfKeyPoint keypoints1 = new MatOfKeyPoint();
@@ -563,18 +580,12 @@ public class MainActivity extends AppCompatActivity {
             // 更新panorama为当前的拼接结果
             panorama = warpImage;
         }
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-//            images.forEach(Image::close);
-//        }
-// 最后，`panorama`是拼接后的全景图
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            mats.forEach(Mat::clone);
+        }
+        // 最后，`panorama`是拼接后的全景图
         return panorama;
     }
 
-    public Mat imageToMat(Image image) {
-        ByteBuffer buffer = image.getPlanes()[0].getBuffer();  // 为简单起见，这里只考虑第一个平面，例如JPEG格式
-        Mat rgbMat = new Mat(image.getWidth(), image.getHeight(), CvType.CV_8UC3, buffer);
-        return rgbMat;
-
-    }
 
 }
