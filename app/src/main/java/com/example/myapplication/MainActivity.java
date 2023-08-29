@@ -46,6 +46,7 @@ import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
+import org.opencv.core.Range;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.features2d.BFMatcher;
@@ -64,6 +65,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -93,7 +95,7 @@ public class MainActivity extends AppCompatActivity {
     // 间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     // 拍摄次数
-    private final int CAPTURE_COUNT = 3;
+    private final int CAPTURE_COUNT = 4;
 
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
@@ -157,9 +159,8 @@ public class MainActivity extends AppCompatActivity {
         panorama.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Mat panorama = stitchImages(matList);;
-                Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_GRAY2RGB);
-                int channels = panorama.channels();
+                Mat panorama = stitchImages(matList);
+
                 String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
                 String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
                 String fullPath = directory + File.separator + filename;
@@ -265,10 +266,6 @@ public class MainActivity extends AppCompatActivity {
         imageReader.setOnImageAvailableListener(imageReaderListener, backgroundHandler);
     }
 
-    private int height = 0;
-    private int width = 0;
-
-    private Mat pmat = null;
     // 创建一个监听ImageReader的图像可用事件的监听器
     private final ImageReader.OnImageAvailableListener imageReaderListener = new ImageReader.OnImageAvailableListener() {
         @Override
@@ -506,22 +503,22 @@ public class MainActivity extends AppCompatActivity {
 
     private Mat stitchImages(List<Mat> mats) {
 
-//        int k = 0;
-//        for (Mat mat : mats) {
-//            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//            String filename = "mat" + (k ++) + "-" + System.currentTimeMillis() + ".jpg";
-//            String fullPath = directory + File.separator + filename;
-//            boolean success = Imgcodecs.imwrite(fullPath, mat);
-//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-//        }
+        int k = 0;
+        for (Mat mat : mats) {
+            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+            String filename = "mat" + (k++) + "-" + System.currentTimeMillis() + ".jpg";
+            String fullPath = directory + File.separator + filename;
+            boolean success = Imgcodecs.imwrite(fullPath, mat);
+            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+        }
 
         Mat panorama = mats.get(0);
-        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_RGB2GRAY);
+//        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_RGB2GRAY);
         for (int i = 1; i < mats.size(); i++) {
             panorama = stitchImagesT(panorama, mats.get(i), i);
 
             String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String pfilename = "stitching灰度之后" + i + "-" + System.currentTimeMillis() + ".jpg";
+            String pfilename = "stitching" + i + "-" + System.currentTimeMillis() + ".jpg";
             String pfullPath = pdirectory + File.separator + pfilename;
             boolean psuccess = Imgcodecs.imwrite(pfullPath, panorama);
             MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
@@ -531,8 +528,6 @@ public class MainActivity extends AppCompatActivity {
 
     // 图像拼接函数
     public Mat stitchImagesT(Mat imgLeft, Mat imgRight, int z) {
-        // 将彩色图像转换为灰度图像
-        Imgproc.cvtColor(imgRight, imgRight, Imgproc.COLOR_RGB2GRAY);
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
@@ -565,11 +560,11 @@ public class MainActivity extends AppCompatActivity {
         Mat outputImage = new Mat();
         Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat, outputImage);
         //
-//        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//        String filename = "outputImage" + "-" + System.currentTimeMillis() + ".jpg";
-//        String fullPath = directory + File.separator + filename;
-//        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
-//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String filename = "plotResult" + "-" + System.currentTimeMillis() + ".jpg";
+        String fullPath = directory + File.separator + filename;
+        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
 
         // 获取匹配点的关键点
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
@@ -594,12 +589,6 @@ public class MainActivity extends AppCompatActivity {
         Mat imgResult = new Mat();
         //对image_right进行透视变换
         Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
-//        String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//        String pfilename = "透视变换" + "-" + System.currentTimeMillis() + ".jpg";
-//        String pfullPath = pdirectory + File.separator + pfilename;
-//        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgRight);
-//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
-
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
 
@@ -619,26 +608,22 @@ public class MainActivity extends AppCompatActivity {
         }
         optimizeSeam(imgLeft, imgResult.colRange(start, end), imgResult);
 
-        String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String pfilename = "stitching灰度之前" + z + "-" + System.currentTimeMillis() + ".jpg";
-        String pfullPath = pdirectory + File.separator + pfilename;
-        boolean psuccess = Imgcodecs.imwrite(pfullPath, imgResult);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
-
-
-        // 裁剪黑色边缘
-        int lastCol = imgResult.cols() - 1;
+        // 拿到黑色区域范围
+        Mat grayImage = new Mat();
+        Imgproc.cvtColor(imgResult, grayImage, Imgproc.COLOR_BGR2GRAY);
+        int lastCol = grayImage.cols() - 1;
         for (; lastCol >= 0; lastCol--) {
-            Mat col = imgResult.col(lastCol);
+            Mat col = grayImage.col(lastCol);
             if (Core.countNonZero(col) > 0) {
                 break;
             }
         }
         imgResult = imgResult.colRange(0, lastCol + 1);
-//        Mat mask = new Mat(imgResult.size(), CvType.CV_8UC1, new Scalar(255));  // 默认所有为白色
-//        Imgproc.warpPerspective(new Mat(imgRight.size(), CvType.CV_8UC1, new Scalar(255)), mask, H, imgResult.size());
 
-        return imgResult;
+        // 裁剪黑色范围
+        Mat subMat = new Mat(imgResult, new Rect(0, 0, lastCol + 1, imgResult.height()));
+
+        return subMat;
     }
 
     public static void optimizeSeam(Mat img1, Mat img2, Mat dst) {
