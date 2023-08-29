@@ -1,6 +1,7 @@
 package com.example.myapplication;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -93,9 +94,11 @@ public class MainActivity extends AppCompatActivity {
 
     private int captureCount = 0;
     // 间隔时间
-    private final int CAPTURE_INTERVAL = 1000;
-    // 拍摄次数
-    private final int CAPTURE_COUNT = 4;
+    private final int CAPTURE_INTERVAL = 500;
+    // 总秒数
+    private final int TOTAL_TIME = 5000;
+
+    private boolean isCapturing = false;
 
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
@@ -103,7 +106,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
-            showToast("图片已捕获: " + captureCount);
+            if (captureCount < TOTAL_TIME / CAPTURE_INTERVAL)
+                showToast("图片已捕获: " + captureCount);
             backgroundHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -117,16 +121,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void takeContinuousPictures() {
         synchronized (this) {
-            if (captureCount < CAPTURE_COUNT) {
+            if (captureCount < (TOTAL_TIME / CAPTURE_INTERVAL)) {
                 takePicture();
                 backgroundHandler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
                         takeContinuousPictures();
                     }
-                }, CAPTURE_INTERVAL); //0.5 seconds delay
+                }, CAPTURE_INTERVAL);
             }
-
         }
     }
 
@@ -148,11 +151,20 @@ public class MainActivity extends AppCompatActivity {
 
         // 设置按钮的点击监听器，当用户点击按钮时，调用 takePicture 方法拍摄照片
         captureButton.setOnClickListener(new View.OnClickListener() {
+            @SuppressLint("SetTextI18n")
             @Override
             public void onClick(View view) {
-                captureCount = 0;
-                matList.clear();
-                takeContinuousPictures();
+                if (!isCapturing) {
+                    captureButton.setText("Stop capture");
+                    isCapturing = true;
+                    captureCount = 0;
+                    matList.clear();
+                    takeContinuousPictures();
+                } else {
+                    captureButton.setText("Capture");
+                    isCapturing = false;
+                    captureCount = TOTAL_TIME / CAPTURE_INTERVAL + 1;
+                }
             }
         });
         Button panorama = findViewById(R.id.otherButton);
@@ -220,7 +232,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
 
     // 打开相机的方法
     private void openCamera() {
@@ -298,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
         return java.util.Base64.getEncoder().encodeToString(bytes);
     }
 
-    public static Mat base64ToMat(String base64Image) throws IOException {
+    public Mat base64ToMat(String base64Image) throws IOException {
         // 解码 Base64 图片数据
         byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
 
