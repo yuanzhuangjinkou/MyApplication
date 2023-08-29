@@ -18,6 +18,7 @@ import android.media.ImageReader;
 import android.media.MediaScannerConnection;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -94,9 +95,9 @@ public class MainActivity extends AppCompatActivity {
 
     private int captureCount = 0;
     // 间隔时间
-    private final int CAPTURE_INTERVAL = 500;
+    private final int CAPTURE_INTERVAL = 1000;
     // 总秒数
-    private final int TOTAL_TIME = 5000;
+    private final int TOTAL_TIME = 10000;
 
     private boolean isCapturing = false;
 
@@ -119,18 +120,31 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private void takeContinuousPictures() {
-        synchronized (this) {
-            if (captureCount < (TOTAL_TIME / CAPTURE_INTERVAL)) {
+    private CountDownTimer captureTimer; // 用于计时的计时器
+    private void startCapture() {
+        captureButton.setText("停止拍摄");
+        isCapturing = true;
+        captureCount = 0;
+        matList.clear();
+
+        captureTimer = new CountDownTimer(TOTAL_TIME, CAPTURE_INTERVAL) {
+            @Override
+            public void onTick(long millisUntilFinished) {
                 takePicture();
-                backgroundHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        takeContinuousPictures();
-                    }
-                }, CAPTURE_INTERVAL);
             }
-        }
+
+            @Override
+            public void onFinish() {
+                stopCapture();
+            }
+        };
+        captureTimer.start();
+    }
+
+    private void stopCapture() {
+        captureButton.setText("开始拍摄");
+        isCapturing = false;
+        captureTimer.cancel();
     }
 
 
@@ -154,16 +168,10 @@ public class MainActivity extends AppCompatActivity {
             @SuppressLint("SetTextI18n")
             @Override
             public void onClick(View view) {
-                if (!isCapturing) {
-                    captureButton.setText("Stop capture");
-                    isCapturing = true;
-                    captureCount = 0;
-                    matList.clear();
-                    takeContinuousPictures();
-                } else {
-                    captureButton.setText("Capture");
-                    isCapturing = false;
-                    captureCount = TOTAL_TIME / CAPTURE_INTERVAL + 1;
+                if (!isCapturing) { // 如果没有在拍摄，则开始拍摄
+                    startCapture();
+                } else { // 如果已经在拍摄，则停止拍摄
+                    stopCapture();
                 }
             }
         });
@@ -513,26 +521,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Mat stitchImages(List<Mat> mats) {
-
-        int k = 0;
-        for (Mat mat : mats) {
-            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String filename = "mat" + (k++) + "-" + System.currentTimeMillis() + ".jpg";
-            String fullPath = directory + File.separator + filename;
-            boolean success = Imgcodecs.imwrite(fullPath, mat);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-        }
-
         Mat panorama = mats.get(0);
-//        Imgproc.cvtColor(panorama, panorama, Imgproc.COLOR_RGB2GRAY);
         for (int i = 1; i < mats.size(); i++) {
             panorama = stitchImagesT(panorama, mats.get(i), i);
-
-            String pdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String pfilename = "stitching" + i + "-" + System.currentTimeMillis() + ".jpg";
-            String pfullPath = pdirectory + File.separator + pfilename;
-            boolean psuccess = Imgcodecs.imwrite(pfullPath, panorama);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{pfullPath}, null, null);
         }
         return panorama;
     }
@@ -600,6 +591,11 @@ public class MainActivity extends AppCompatActivity {
         Mat imgResult = new Mat();
         //对image_right进行透视变换
         Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
+        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
+        String tfullPath = tdirectory + File.separator + tfilename;
+        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgRight);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
 
