@@ -97,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
     // 间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     // 总秒数
-    private final int TOTAL_TIME = 10000;
+    private final int TOTAL_TIME = 5000;
 
     private boolean isCapturing = false;
 
@@ -523,13 +523,13 @@ public class MainActivity extends AppCompatActivity {
     private Mat stitchImages(List<Mat> mats) {
         Mat panorama = mats.get(0);
         for (int i = 1; i < mats.size(); i++) {
-            panorama = stitchImagesT(panorama, mats.get(i), i);
+            panorama = stitchImagesT(panorama, mats.get(i));
         }
         return panorama;
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight, int z) {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
