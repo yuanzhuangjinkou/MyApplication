@@ -1,5 +1,7 @@
 package com.example.myapplication;
 
+import static org.opencv.calib3d.Calib3d.findFundamentalMat;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -47,6 +49,7 @@ import org.opencv.core.MatOfDMatch;
 import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.MatOfPoint3f;
 import org.opencv.core.Point;
 import org.opencv.core.Range;
 import org.opencv.core.Rect;
@@ -59,6 +62,7 @@ import org.opencv.features2d.SIFT;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.osgi.OpenCVNativeLoader;
+import org.opencv.photo.Photo;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -97,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
     // 间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     // 总秒数
-    private final int TOTAL_TIME = 5000;
+    private final int TOTAL_TIME = 6000;
 
     private boolean isCapturing = false;
 
@@ -540,20 +544,19 @@ public class MainActivity extends AppCompatActivity {
         sift.detectAndCompute(imgLeft, new Mat(), keypointsLeft, descriptorsLeft);
         sift.detectAndCompute(imgRight, new Mat(), keypointsRight, descriptorsRight);
 
-        // 使用KNN匹配特征点
+        // 特征匹配器
         BFMatcher bfMatcher = BFMatcher.create(Core.NORM_L2, false);
         List<MatOfDMatch> knnMatches = new ArrayList<>();
         bfMatcher.knnMatch(descriptorsLeft, descriptorsRight, knnMatches, 2);
 
         List<DMatch> goodMatches = new ArrayList<>();
-        float ratioThreshold = 0.7f;
+        float ratioThreshold = 0.8f;
         for (MatOfDMatch knnMatch : knnMatches) {
             DMatch[] matches = knnMatch.toArray();
             if (matches[0].distance < ratioThreshold * matches[1].distance) {
                 goodMatches.add(matches[0]);
             }
         }
-
         // 筛选出较好的匹配点
         MatOfDMatch goodMatchesMat = new MatOfDMatch();
         goodMatchesMat.fromList(goodMatches);
@@ -587,6 +590,7 @@ public class MainActivity extends AppCompatActivity {
         dstPoints.fromList(pointsRight);
 
         // 计算单应性矩阵H
+//        Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
         Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
         Mat imgResult = new Mat();
         //对image_right进行透视变换
@@ -594,7 +598,7 @@ public class MainActivity extends AppCompatActivity {
         String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
         String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
         String tfullPath = tdirectory + File.separator + tfilename;
-        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgRight);
+        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
         MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
@@ -621,7 +625,8 @@ public class MainActivity extends AppCompatActivity {
         int lastCol = grayImage.cols() - 1;
         for (; lastCol >= 0; lastCol--) {
             Mat col = grayImage.col(lastCol);
-            if (Core.countNonZero(col) > 0) {
+            int i = Core.countNonZero(col);
+            if (Core.countNonZero(col) >= col.rows() / 2) {
                 break;
             }
         }
