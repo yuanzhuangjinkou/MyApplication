@@ -128,13 +128,14 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onFinish() {
                 stopCapture();
+                jointAndSave();
             }
         };
         captureTimer.start();
     }
 
     private void stopCapture() {
-        captureButton.setText("开始拍摄");
+        captureButton.setText("全景图片生成中...");
         isCapturing = false;
         captureTimer.cancel();
     }
@@ -164,21 +165,7 @@ public class MainActivity extends AppCompatActivity {
                     startCapture();
                 } else { // 如果已经在拍摄，则停止拍摄
                     stopCapture();
-                    Mat panorama = new Mat();
-                try {
-                    panorama = stitchImages(matList);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    showToast("全景拼接失败");
-                    return;
-                }
-
-                    String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-                    String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-                    String fullPath = directory + File.separator + filename;
-                    boolean success = Imgcodecs.imwrite(fullPath, panorama);
-                    MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-                    showToast("全景图已生成");
+                    jointAndSave();
                 }
             }
         });
@@ -191,6 +178,35 @@ public class MainActivity extends AppCompatActivity {
 
         // 启动后台线程
         startBackgroundThread();
+    }
+
+    // 拼接全景图片
+    public void jointAndSave() {
+
+        for (Mat mat : matList) {
+            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+            String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+            String fullPath = directory + File.separator + filename;
+            boolean success = Imgcodecs.imwrite(fullPath, mat);
+            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+        }
+
+        Mat panorama = new Mat();
+//                try {
+        panorama = stitchImagesRecursive(matList);
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                    showToast("全景拼接失败");
+//                    return;
+//                }
+
+        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+        String fullPath = directory + File.separator + filename;
+        boolean success = Imgcodecs.imwrite(fullPath, panorama);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+        captureButton.setText("开始拍摄");
+        showToast("全景图已生成");
     }
 
     // 启动后台线程
@@ -298,6 +314,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
+                assert image != null;
                 image.close();
             }
         }
@@ -513,17 +530,41 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private Mat stitchImages(List<Mat> mats) {
-        Mat panorama = mats.get(0);
-        for (int i = 1; i < mats.size(); i++) {
-            try {
-                panorama = stitchImagesT(panorama, mats.get(i));
-            } catch (Exception e) {
-                e.printStackTrace();
-                throw new RuntimeException();
-            }
+    /**
+        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String tfilename = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
+        String tfullPath = tdirectory + File.separator + tfilename;
+        boolean tsuccess = Imgcodecs.imwrite(tfullPath, stitchedImage);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
+     */
+
+
+        private Mat stitchImagesRecursive(List<Mat> mats) {
+        if (mats.size() == 1) {
+            return mats.get(0);
+        } else if (mats.size() == 2) {
+            return stitchImagesT(mats.get(0), mats.get(1));
+        } else {
+            int midIndex = mats.size() / 2;
+            List<Mat> firstHalf = mats.subList(0, midIndex);
+            List<Mat> secondHalf = mats.subList(midIndex, mats.size());
+            Mat stitchedFirstHalf = stitchImagesRecursive(firstHalf);
+            Mat stitchedSecondHalf = stitchImagesRecursive(secondHalf);
+
+//            String tdirectory1 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//            String tfilename1 = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
+//            String tfullPath1 = tdirectory1 + File.separator + tfilename1;
+//            boolean tsuccess1 = Imgcodecs.imwrite(tfullPath1, stitchedFirstHalf);
+//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath1}, null, null);
+//
+//            String tdirectory2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//            String tfilename2 = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
+//            String tfullPath2 = tdirectory2 + File.separator + tfilename2;
+//            boolean tsuccess2 = Imgcodecs.imwrite(tfullPath2, stitchedSecondHalf);
+//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath2}, null, null);
+
+            return stitchImagesT(stitchedFirstHalf, stitchedSecondHalf);
         }
-        return panorama;
     }
 
     // 图像拼接函数
@@ -544,7 +585,7 @@ public class MainActivity extends AppCompatActivity {
         bfMatcher.knnMatch(descriptorsLeft, descriptorsRight, knnMatches, 2);
 
         List<DMatch> goodMatches = new ArrayList<>();
-        float ratioThreshold = 0.8f;
+        float ratioThreshold = 1f;
         for (MatOfDMatch knnMatch : knnMatches) {
             DMatch[] matches = knnMatch.toArray();
             if (matches[0].distance < ratioThreshold * matches[1].distance) {
@@ -555,16 +596,6 @@ public class MainActivity extends AppCompatActivity {
         MatOfDMatch goodMatchesMat = new MatOfDMatch();
         goodMatchesMat.fromList(goodMatches);
 
-        // 绘制匹配结果
-        Mat outputImage = new Mat();
-        Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat, outputImage);
-        //
-        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String filename = "plotResult" + "-" + System.currentTimeMillis() + ".jpg";
-        String fullPath = directory + File.separator + filename;
-        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-
         // 获取匹配点的关键点
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
         List<KeyPoint> keypointsRightList = keypointsRight.toList();
@@ -572,8 +603,8 @@ public class MainActivity extends AppCompatActivity {
         double xmax = 0;
         double ymax = 0;
         List<DMatch> goodMatchesHorizontal = new ArrayList<>();
-        float yThreshold = 10f; // you can adjust this value according to your needs
-        float xThreshold = imgLeft.cols(); // you can adjust this value according to your needs
+        float yThreshold = 20f;
+        float xThreshold = imgLeft.cols();
         for (DMatch match : goodMatches) {
             Point pointLeft = keypointsLeftList.get(match.queryIdx).pt;
             Point pointRight = keypointsRightList.get(match.trainIdx).pt;
@@ -599,26 +630,40 @@ public class MainActivity extends AppCompatActivity {
         srcPoints.fromList(pointsLeft);
         dstPoints.fromList(pointsRight);
 
+        MatOfDMatch goodMatchesMat1 = new MatOfDMatch();
+        goodMatchesMat1.fromList(goodMatchesHorizontal);
+
+//        // 绘制匹配结果
+//        Mat outputImage = new Mat();
+//        Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat1, outputImage);
+//        // 保存绘制匹配结果
+//        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//        String filename = "plotResult" + "-" + System.currentTimeMillis() + ".jpg";
+//        String fullPath = directory + File.separator + filename;
+//        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
+//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+
         Mat imgResult = new Mat();
-        try {
-            // 计算单应性矩阵H
-            // Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
-            Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
+//        try {
+        // 计算单应性矩阵H
+        // Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
+        Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
 
-            //对image_right进行透视变换
-            Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
-            String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
-            String tfullPath = tdirectory + File.separator + tfilename;
-            boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
+        //对image_right进行透视变换
+        Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
 
-            //将image_left拷贝到透视变换后的图片上，完成图像拼接
-            imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException("全景拼接失败"); // 抛出另
-        }
+//        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//        String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
+//        String tfullPath = tdirectory + File.separator + tfilename;
+//        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
+//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
+
+        //将image_left拷贝到透视变换后的图片上，完成图像拼接
+        imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//            throw new RuntimeException("全景拼接失败"); // 抛出另
+//        }
 
         // 优化接缝
         int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
