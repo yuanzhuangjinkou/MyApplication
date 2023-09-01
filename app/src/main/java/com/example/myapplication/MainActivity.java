@@ -121,7 +121,7 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 executeMethod(); // 递归调用方法，实现无限执行
             }
-        }, 1000); // 设置延迟时间为1秒（1000毫秒）
+        }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
     }
     private void startCapture() {
         captureButton.setText("停止拍摄");
