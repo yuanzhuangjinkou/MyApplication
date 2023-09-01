@@ -112,32 +112,27 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private CountDownTimer captureTimer; // 用于计时的计时器
-
+    private Handler handler = new Handler();
+    private void executeMethod() {
+        // 执行你的方法逻辑
+        takePicture();
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                executeMethod(); // 递归调用方法，实现无限执行
+            }
+        }, 1000); // 设置延迟时间为1秒（1000毫秒）
+    }
     private void startCapture() {
         captureButton.setText("停止拍摄");
         isCapturing = true;
         matList.clear();
-
-        captureTimer = new CountDownTimer(TOTAL_TIME, CAPTURE_INTERVAL) {
-            @Override
-            public void onTick(long millisUntilFinished) {
-                takePicture();
-            }
-
-            @Override
-            public void onFinish() {
-                stopCapture();
-                jointAndSave();
-            }
-        };
-        captureTimer.start();
+        executeMethod();
     }
 
     private void stopCapture() {
         captureButton.setText("全景图片生成中...");
         isCapturing = false;
-        captureTimer.cancel();
     }
 
 
