@@ -96,12 +96,10 @@ public class MainActivity extends AppCompatActivity {
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
 
-
-    private int captureCount = 0;
-    // 间隔时间
+    // 捕获间隔时间
     private final int CAPTURE_INTERVAL = 1000;
-    // 总秒数
-    private final int TOTAL_TIME = 6000;
+    // 总秒数, 设置为60秒, 模拟取消自动结束
+    private final int TOTAL_TIME = 30000;
 
     private boolean isCapturing = false;
 
@@ -111,24 +109,14 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
-            if (captureCount < TOTAL_TIME / CAPTURE_INTERVAL)
-                showToast("图片已捕获: " + captureCount);
-            backgroundHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (this) {
-                        captureCount++;
-                    }
-                }
-            });
         }
     };
 
     private CountDownTimer captureTimer; // 用于计时的计时器
+
     private void startCapture() {
         captureButton.setText("停止拍摄");
         isCapturing = true;
-        captureCount = 0;
         matList.clear();
 
         captureTimer = new CountDownTimer(TOTAL_TIME, CAPTURE_INTERVAL) {
@@ -176,21 +164,22 @@ public class MainActivity extends AppCompatActivity {
                     startCapture();
                 } else { // 如果已经在拍摄，则停止拍摄
                     stopCapture();
+                    Mat panorama = new Mat();
+                try {
+                    panorama = stitchImages(matList);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    showToast("全景拼接失败");
+                    return;
                 }
-            }
-        });
-        Button panorama = findViewById(R.id.otherButton);
-        panorama.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Mat panorama = stitchImages(matList);
 
-                String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-                String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-                String fullPath = directory + File.separator + filename;
-                boolean success = Imgcodecs.imwrite(fullPath, panorama);
-                MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-                showToast("全景图已生成");
+                    String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+                    String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+                    String fullPath = directory + File.separator + filename;
+                    boolean success = Imgcodecs.imwrite(fullPath, panorama);
+                    MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+                    showToast("全景图已生成");
+                }
             }
         });
 
@@ -527,7 +516,12 @@ public class MainActivity extends AppCompatActivity {
     private Mat stitchImages(List<Mat> mats) {
         Mat panorama = mats.get(0);
         for (int i = 1; i < mats.size(); i++) {
-            panorama = stitchImagesT(panorama, mats.get(i));
+            try {
+                panorama = stitchImagesT(panorama, mats.get(i));
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException();
+            }
         }
         return panorama;
     }
@@ -575,10 +569,26 @@ public class MainActivity extends AppCompatActivity {
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
         List<KeyPoint> keypointsRightList = keypointsRight.toList();
 
+        double xmax = 0;
+        double ymax = 0;
+        List<DMatch> goodMatchesHorizontal = new ArrayList<>();
+        float yThreshold = 10f; // you can adjust this value according to your needs
+        float xThreshold = imgLeft.cols(); // you can adjust this value according to your needs
+        for (DMatch match : goodMatches) {
+            Point pointLeft = keypointsLeftList.get(match.queryIdx).pt;
+            Point pointRight = keypointsRightList.get(match.trainIdx).pt;
+
+            if (Math.abs(pointLeft.y - pointRight.y) < yThreshold && Math.abs(pointLeft.x - pointRight.x) <= xThreshold) {
+                goodMatchesHorizontal.add(match);
+            }
+            ymax = Math.max(pointLeft.y - pointRight.y, ymax);
+            xmax = Math.max(pointLeft.x - pointRight.x, xmax);
+        }
+
         // 构建匹配点的特征点坐标
         List<Point> pointsLeft = new ArrayList<>();
         List<Point> pointsRight = new ArrayList<>();
-        for (DMatch match : goodMatches) {
+        for (DMatch match : goodMatchesHorizontal) {
             pointsLeft.add(keypointsLeftList.get(match.queryIdx).pt);
             pointsRight.add(keypointsRightList.get(match.trainIdx).pt);
         }
@@ -589,19 +599,26 @@ public class MainActivity extends AppCompatActivity {
         srcPoints.fromList(pointsLeft);
         dstPoints.fromList(pointsRight);
 
-        // 计算单应性矩阵H
-//        Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
-        Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
         Mat imgResult = new Mat();
-        //对image_right进行透视变换
-        Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
-        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
-        String tfullPath = tdirectory + File.separator + tfilename;
-        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
-        //将image_left拷贝到透视变换后的图片上，完成图像拼接
-        imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+        try {
+            // 计算单应性矩阵H
+            // Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
+            Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
+
+            //对image_right进行透视变换
+            Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
+            String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+            String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
+            String tfullPath = tdirectory + File.separator + tfilename;
+            boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
+            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
+
+            //将image_left拷贝到透视变换后的图片上，完成图像拼接
+            imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException("全景拼接失败"); // 抛出另
+        }
 
         // 优化接缝
         int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
