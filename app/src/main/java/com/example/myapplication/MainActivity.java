@@ -70,12 +70,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -98,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
     // 捕获间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     private boolean isCapturing = false;
-    private CopyOnWriteArrayList<Mat> matList = new CopyOnWriteArrayList<>();
+    private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
@@ -107,7 +110,8 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private Handler handler = new Handler();
+    private final Handler handler = new Handler();
+
     private void executeMethod() {
         // 捕获
         takePicture();
@@ -118,6 +122,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
     }
+
     private void startCapture() {
         captureButton.setText("停止拍摄");
         isCapturing = true;
@@ -127,7 +132,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopCapture() {
-        captureButton.setText("全景图片生成中...");
+
         isCapturing = false;
     }
 
@@ -168,8 +173,13 @@ public class MainActivity extends AppCompatActivity {
 
     // 拼接全景图片
     public void jointAndSave() {
-
+        List<Mat> mats = new ArrayList<>();
         for (Mat mat : matList) {
+            mats.add(mat.clone());
+        }
+        boolean equals = mats.equals(matList);
+
+        for (Mat mat : mats) {
             String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
             String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
             String fullPath = directory + File.separator + filename;
@@ -178,13 +188,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Mat panorama = new Mat();
-//                try {
-        panorama = stitchImagesRecursive(matList);
-//                } catch (Exception e) {
-//                    e.printStackTrace();
-//                    showToast("全景拼接失败");
-//                    return;
-//                }
+                try {
+        panorama = stitchImagesRecursive(mats);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    showToast("全景拼接失败");
+                    captureButton.setText("开始拍摄");
+                    return;
+                }
 
         String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
         String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
@@ -503,7 +514,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-        private Mat stitchImagesRecursive(List<Mat> mats) {
+    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException{
+        if(mats.size() == 0)
+            return new Mat();
         if (mats.size() == 1) {
             return mats.get(0);
         } else if (mats.size() == 2) {
@@ -519,7 +532,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight)  throws RuntimeException {
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
@@ -586,18 +599,11 @@ public class MainActivity extends AppCompatActivity {
         goodMatchesMat1.fromList(goodMatchesHorizontal);
 
         Mat imgResult = new Mat();
-//        try {
-        // 计算单应性矩阵H
-        // Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
         Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
         //对image_right进行透视变换
         Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            throw new RuntimeException("全景拼接失败"); // 抛出另
-//        }
 
         // 优化接缝
         int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
