@@ -24,6 +24,7 @@ import android.os.CountDownTimer;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -73,6 +74,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -103,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isCapturing = false;
 
-    private List<Mat> matList = new ArrayList<>();
+    private CopyOnWriteArrayList<Mat> matList = new CopyOnWriteArrayList<>();
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
@@ -319,13 +321,14 @@ public class MainActivity extends AppCompatActivity {
         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
-        return java.util.Base64.getEncoder().encodeToString(bytes);
+//        return java.util.Base64.getEncoder().encodeToString(bytes);
+        return Base64.encodeToString(bytes, Base64.DEFAULT);
     }
 
     public Mat base64ToMat(String base64Image) throws IOException {
         // 解码 Base64 图片数据
-        byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
-
+//        byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
+        byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
         // 创建 ByteArrayInputStream 以读取字节数组
         ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
 
