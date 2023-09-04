@@ -74,6 +74,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class MainActivity extends AppCompatActivity {
@@ -82,29 +83,21 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     // 日志标签
     private static final String TAG = "tag";
-
     // 界面元素
     private TextureView textureView;
     private Button captureButton;
-
     // 相机相关
     private CameraManager cameraManager;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
     private CaptureRequest.Builder captureRequestBuilder;
     private ImageReader imageReader;
-
     // 后台线程和处理程序
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
-
     // 捕获间隔时间
     private final int CAPTURE_INTERVAL = 1000;
-    // 总秒数, 设置为60秒, 模拟取消自动结束
-    private final int TOTAL_TIME = 30000;
-
     private boolean isCapturing = false;
-
     private CopyOnWriteArrayList<Mat> matList = new CopyOnWriteArrayList<>();
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
@@ -116,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
 
     private Handler handler = new Handler();
     private void executeMethod() {
-        // 执行你的方法逻辑
+        // 捕获
         takePicture();
         handler.postDelayed(new Runnable() {
             @Override
@@ -129,6 +122,7 @@ public class MainActivity extends AppCompatActivity {
         captureButton.setText("停止拍摄");
         isCapturing = true;
         matList.clear();
+        setupCaptureRequest();
         executeMethod();
     }
 
@@ -148,11 +142,9 @@ public class MainActivity extends AppCompatActivity {
         } else {
             Log.d(TAG, "OpenCV initialization succeeded.");
         }
-
         // 初始化界面元素
         textureView = findViewById(R.id.textureView);
         captureButton = findViewById(R.id.captureButton);
-
         // 设置按钮的点击监听器，当用户点击按钮时，调用 takePicture 方法拍摄照片
         captureButton.setOnClickListener(new View.OnClickListener() {
             @SuppressLint("SetTextI18n")
@@ -166,13 +158,10 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
-
         // 获取相机管理器
         cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-
         // 设置 TextureView 的监听器
         textureView.setSurfaceTextureListener(textureListener);
-
         // 启动后台线程
         startBackgroundThread();
     }
@@ -204,6 +193,10 @@ public class MainActivity extends AppCompatActivity {
         MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
         captureButton.setText("开始拍摄");
         showToast("全景图已生成");
+        panorama.release();
+        for (Mat mat : matList) {
+            mat.release();
+        }
     }
 
     // 启动后台线程
@@ -215,7 +208,6 @@ public class MainActivity extends AppCompatActivity {
         // 创建后台线程的处理程序，它将与后台线程的消息队列关联
         backgroundHandler = new Handler(backgroundThread.getLooper());
     }
-
 
     // 停止后台线程
     private void stopBackgroundThread() {
@@ -256,10 +248,8 @@ public class MainActivity extends AppCompatActivity {
             CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
             // 用于存储支持的JPEG图像尺寸的数组
             Size[] jpegSizes = null;
-            if (characteristics != null) {
-                // 获取相机支持的JPEG图像尺寸
-                jpegSizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).getOutputSizes(ImageFormat.JPEG);
-            }
+            // 获取相机支持的JPEG图像尺寸
+            jpegSizes = Objects.requireNonNull(characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)).getOutputSizes(ImageFormat.JPEG);
             // 设置图像的默认宽度和高度
             int width = 640;
             int height = 360;
@@ -303,10 +293,6 @@ public class MainActivity extends AppCompatActivity {
                     String s = imageToBase64(image);
                     Mat mat = base64ToMat(s);
                     matList.add(mat);
-//                    if(matList.size() == 1)
-//                        pmat = mat;
-//                    else
-//                        pmat = stitchImagesTwo(pmat, mat);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -321,52 +307,43 @@ public class MainActivity extends AppCompatActivity {
         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
-//        return java.util.Base64.getEncoder().encodeToString(bytes);
         return Base64.encodeToString(bytes, Base64.DEFAULT);
     }
 
     public Mat base64ToMat(String base64Image) throws IOException {
-        // 解码 Base64 图片数据
-//        byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
         byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
-        // 创建 ByteArrayInputStream 以读取字节数组
         ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
-
-        // 使用 OpenCV 加载图像
         Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
-
         // 调整图像尺寸（可选）
         org.opencv.core.Size newSize = new org.opencv.core.Size(640, 360);
         Imgproc.resize(imageMat, imageMat, newSize);
-
         return imageMat;
     }
 
-    // 拍摄照片的方法
-    private void takePicture() {
-        // 检查相机设备是否为空，如果为空则退出方法
+    private void setupCaptureRequest() {
         if (cameraDevice == null) {
             return;
         }
         try {
-            // 创建用于拍照的捕获请求，使用预定义的 TEMPLATE_STILL_CAPTURE 模板
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            // 图片顺时针旋转90度
             captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90);
-
-            // 将图像输出目标设置为ImageReader的Surface，以便保存捕获的图像
             captureRequestBuilder.addTarget(imageReader.getSurface());
-
-            // 设置自动对焦模式为连续图片，确保照片清晰
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-
-            // 使用相机捕获会话开始捕获图像，捕获后调用 captureCallback 进行后续处理
-            cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, null);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
 
+    private void takePicture() {
+        if (cameraCaptureSession == null) {
+            return;
+        }
+        try {
+            cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, null);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
 
     // 相机设备状态回调，用于处理相机设备的不同状态
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
@@ -422,13 +399,11 @@ public class MainActivity extends AppCompatActivity {
                     if (cameraDevice == null) {
                         return;
                     }
-
                     // 将会话赋值给成员变量
                     cameraCaptureSession = session;
                     // 更新相机预览
                     updatePreview();
                 }
-
                 @Override
                 // 当会话配置失败时调用
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
@@ -528,15 +503,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String tfilename = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
-        String tfullPath = tdirectory + File.separator + tfilename;
-        boolean tsuccess = Imgcodecs.imwrite(tfullPath, stitchedImage);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
-     */
-
-
         private Mat stitchImagesRecursive(List<Mat> mats) {
         if (mats.size() == 1) {
             return mats.get(0);
@@ -548,19 +514,6 @@ public class MainActivity extends AppCompatActivity {
             List<Mat> secondHalf = mats.subList(midIndex, mats.size());
             Mat stitchedFirstHalf = stitchImagesRecursive(firstHalf);
             Mat stitchedSecondHalf = stitchImagesRecursive(secondHalf);
-
-//            String tdirectory1 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//            String tfilename1 = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
-//            String tfullPath1 = tdirectory1 + File.separator + tfilename1;
-//            boolean tsuccess1 = Imgcodecs.imwrite(tfullPath1, stitchedFirstHalf);
-//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath1}, null, null);
-//
-//            String tdirectory2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//            String tfilename2 = "pinjie" + "-" + System.currentTimeMillis() + ".jpg";
-//            String tfullPath2 = tdirectory2 + File.separator + tfilename2;
-//            boolean tsuccess2 = Imgcodecs.imwrite(tfullPath2, stitchedSecondHalf);
-//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath2}, null, null);
-
             return stitchImagesT(stitchedFirstHalf, stitchedSecondHalf);
         }
     }
@@ -598,6 +551,7 @@ public class MainActivity extends AppCompatActivity {
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
         List<KeyPoint> keypointsRightList = keypointsRight.toList();
 
+        // 筛选出在水平或竖直方向上偏移过大的特征点
         double xmax = 0;
         double ymax = 0;
         List<DMatch> goodMatchesHorizontal = new ArrayList<>();
@@ -631,31 +585,13 @@ public class MainActivity extends AppCompatActivity {
         MatOfDMatch goodMatchesMat1 = new MatOfDMatch();
         goodMatchesMat1.fromList(goodMatchesHorizontal);
 
-//        // 绘制匹配结果
-//        Mat outputImage = new Mat();
-//        Features2d.drawMatches(imgLeft, keypointsLeft, imgRight, keypointsRight, goodMatchesMat1, outputImage);
-//        // 保存绘制匹配结果
-//        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//        String filename = "plotResult" + "-" + System.currentTimeMillis() + ".jpg";
-//        String fullPath = directory + File.separator + filename;
-//        boolean success = Imgcodecs.imwrite(fullPath, outputImage);
-//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-
         Mat imgResult = new Mat();
 //        try {
         // 计算单应性矩阵H
         // Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RHO);
         Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
-
         //对image_right进行透视变换
         Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
-
-//        String tdirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-//        String tfilename = "toushihou" + "-" + System.currentTimeMillis() + ".jpg";
-//        String tfullPath = tdirectory + File.separator + tfilename;
-//        boolean tsuccess = Imgcodecs.imwrite(tfullPath, imgResult);
-//        MediaScannerConnection.scanFile(MainActivity.this, new String[]{tfullPath}, null, null);
-
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
 //        } catch (Exception e) {
