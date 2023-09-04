@@ -260,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
             }
             // 设置图像的默认宽度和高度
             int width = 640;
-            int height = 480;
+            int height = 360;
             if (jpegSizes != null && jpegSizes.length > 0) {
                 // 如果支持JPEG尺寸，则使用第一个支持的尺寸
                 width = jpegSizes[0].getWidth();
@@ -333,7 +333,7 @@ public class MainActivity extends AppCompatActivity {
         Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
 
         // 调整图像尺寸（可选）
-        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 480);
+        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 360);
         Imgproc.resize(imageMat, imageMat, newSize);
 
         return imageMat;
@@ -401,7 +401,7 @@ public class MainActivity extends AppCompatActivity {
             // 断言 SurfaceTexture 不为空，否则抛出异常
             assert texture != null;
             // 设置默认的缓冲区大小为 640x480
-            texture.setDefaultBufferSize(640, 480);
+            texture.setDefaultBufferSize(640, 360);
             // 创建用于相机预览的 Surface
             Surface surface = new Surface(texture);
 
