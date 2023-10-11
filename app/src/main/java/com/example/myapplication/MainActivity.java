@@ -2,6 +2,7 @@ package com.example.myapplication;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -13,6 +14,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaScannerConnection;
@@ -24,6 +26,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
@@ -37,6 +41,7 @@ import androidx.core.content.ContextCompat;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.Core;
+import org.opencv.core.CvType;
 import org.opencv.core.DMatch;
 import org.opencv.core.KeyPoint;
 import org.opencv.core.Mat;
@@ -46,6 +51,7 @@ import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
 import org.opencv.features2d.BFMatcher;
 import org.opencv.features2d.SIFT;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -53,12 +59,17 @@ import org.opencv.imgproc.Imgproc;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -160,22 +171,23 @@ public class MainActivity extends AppCompatActivity {
         boolean equals = mats.equals(matList);
 
         for (Mat mat : mats) {
-            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-            String fullPath = directory + File.separator + filename;
-            boolean success = Imgcodecs.imwrite(fullPath, mat);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+//            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+//            String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+//            String fullPath = directory + File.separator + filename;
+//            boolean success = Imgcodecs.imwrite(fullPath, mat);
+//            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
         }
 
         Mat panorama = new Mat();
-                try {
+//                try {
         panorama = stitchImagesRecursive(mats);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    showToast("全景拼接失败");
-                    captureButton.setText("开始拍摄");
-                    return;
-                }
+//                } catch (Exception e) {
+//                    Log.e("TAG", "macold: " + e);
+//
+//                    showToast("全景拼接失败");
+//                    captureButton.setText("开始拍摄");
+//                    return;
+//                }
 
         String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
         String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
@@ -211,7 +223,7 @@ public class MainActivity extends AppCompatActivity {
             backgroundThread = null;
             backgroundHandler = null;
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -260,7 +272,7 @@ public class MainActivity extends AppCompatActivity {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
             }
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -286,7 +298,7 @@ public class MainActivity extends AppCompatActivity {
                     matList.add(mat);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e("TAG", "macold: " + e);
             } finally {
                 assert image != null;
                 image.close();
@@ -321,7 +333,7 @@ public class MainActivity extends AppCompatActivity {
             captureRequestBuilder.addTarget(imageReader.getSurface());
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -332,7 +344,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             cameraCaptureSession.capture(captureRequestBuilder.build(), captureCallback, null);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -403,7 +415,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }, null);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -420,7 +432,7 @@ public class MainActivity extends AppCompatActivity {
             // 开始持续预览
             cameraCaptureSession.setRepeatingRequest(captureRequestBuilder.build(), null, backgroundHandler);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e("TAG", "macold: " + e);
         }
     }
 
@@ -494,7 +506,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException{
+    private Mat stitchImagesRecursive(List<Mat> mats){
         if(mats.size() == 0)
             return new Mat();
         if (mats.size() == 1) {
@@ -512,7 +524,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight)  throws RuntimeException {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
@@ -539,6 +551,7 @@ public class MainActivity extends AppCompatActivity {
         // 筛选出较好的匹配点
         MatOfDMatch goodMatchesMat = new MatOfDMatch();
         goodMatchesMat.fromList(goodMatches);
+        // goodMatchesMat 筛选完成
 
         // 获取匹配点的关键点
         List<KeyPoint> keypointsLeftList = keypointsLeft.toList();
@@ -578,32 +591,80 @@ public class MainActivity extends AppCompatActivity {
         MatOfDMatch goodMatchesMat1 = new MatOfDMatch();
         goodMatchesMat1.fromList(goodMatchesHorizontal);
 
+        // imgResult 右图变换后的图
         Mat imgResult = new Mat();
         Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
-        //对image_right进行透视变换
-        Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
-        //将image_left拷贝到透视变换后的图片上，完成图像拼接
-        imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
 
-        // 优化接缝
-        int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
-        int start = imgLeft.cols() - overlapWidth;
-        int end = imgLeft.cols();
-        double minDiff = Double.MAX_VALUE;
-        for (int i = start; i < end; i++) {
-            Mat leftEdge = imgLeft.colRange(i, i + 1);
-            Mat rightEdgeInResult = imgResult.colRange(i, i + 1);
-            double diff = Core.norm(leftEdge, rightEdgeInResult, Core.NORM_L1);
-            if (diff < minDiff) {
-                minDiff = diff;
-                start = i;
-            }
-        }
-        optimizeSeam(imgLeft, imgResult.colRange(start, end), imgResult);
+        //计算配准图的四个顶点坐标
+        ImageStitching.calcCorners(H, imgRight);
+        org.opencv.core.Size size = new org.opencv.core.Size((int) Math.max(ImageStitching.corners.rightTop.x, ImageStitching.corners.rightBottom.x), imgLeft.rows());
+
+        //对image_right进行透视变换
+        Imgproc.warpPerspective(imgRight, imgResult, H, size);
+
+        // --直接将左图拷贝在右图上面
+        //将image_left拷贝到透视变换后的图片上，完成图像拼接
+//        imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+
+        int dst_width = imgResult.cols() * 2;
+        int dst_height = imgLeft.rows();
+
+        Mat dst = new Mat(dst_height, dst_width, CvType.CV_8UC3);
+        dst.setTo(new Scalar(0));
+
+        int cols = dst.cols();
+        int rows = dst.rows();
+        int col11s = imgResult.cols();
+        int ro1ws = imgResult.rows();
+        int col211s = imgLeft.cols();
+        int ro21ws = imgLeft.rows();
+
+
+        Log.d(TAG, "dst.cols:" + dst.cols());
+        Log.d(TAG, "dst.rows:" + dst.rows());
+        Log.d(TAG, "imgResult.cols:" + dst.cols());
+        Log.d(TAG, "imgResult.rows:" + dst.rows());
+        Log.d(TAG, "imgLeft.cols:" + dst.cols());
+        Log.d(TAG, "imgLeft.rows:" + dst.rows());
+
+        imgResult.copyTo(dst.submat(new Rect(0, 0, imgResult.cols(), imgResult.rows())));
+        imgLeft.copyTo(dst.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
+
+        ImageStitching.optimizeSeam(imgLeft, imgResult, dst);
+
+
+        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+        String fullPath = directory + File.separator + filename;
+        boolean success = Imgcodecs.imwrite(fullPath, imgLeft);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+
+
+        directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+        fullPath = directory + File.separator + filename;
+        success = Imgcodecs.imwrite(fullPath, imgResult);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+
+//        // 优化接缝
+//        int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
+//        int start = imgLeft.cols() - overlapWidth;
+//        int end = imgLeft.cols();
+//        double minDiff = Double.MAX_VALUE;
+//        for (int i = start; i < end; i++) {
+//            Mat leftEdge = imgLeft.colRange(i, i + 1);
+//            Mat rightEdgeInResult = imgResult.colRange(i, i + 1);
+//            double diff = Core.norm(leftEdge, rightEdgeInResult, Core.NORM_L1);
+//            if (diff < minDiff) {
+//                minDiff = diff;
+//                start = i;
+//            }
+//        }
+//        optimizeSeam(imgLeft, imgResult.colRange(start, end), imgResult);
 
         // 拿到黑色区域范围
         Mat grayImage = new Mat();
-        Imgproc.cvtColor(imgResult, grayImage, Imgproc.COLOR_BGR2GRAY);
+        Imgproc.cvtColor(dst, grayImage, Imgproc.COLOR_BGR2GRAY);
         int lastCol = grayImage.cols() - 1;
         for (; lastCol >= 0; lastCol--) {
             Mat col = grayImage.col(lastCol);
@@ -612,10 +673,10 @@ public class MainActivity extends AppCompatActivity {
                 break;
             }
         }
-        imgResult = imgResult.colRange(0, lastCol + 1);
+        dst = dst.colRange(0, lastCol + 1);
 
         // 裁剪黑色范围
-        Mat subMat = new Mat(imgResult, new Rect(0, 0, lastCol + 1, imgResult.height()));
+        Mat subMat = new Mat(dst, new Rect(0, 0, lastCol + 1, dst.height()));
 
         return subMat;
     }
@@ -641,5 +702,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
+//    static ImageStitching.FourCorners corners = new ImageStitching.FourCorners();
 
 }
