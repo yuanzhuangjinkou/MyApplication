@@ -10,17 +10,21 @@ import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraExtensionCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaScannerConnection;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Base64;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -30,6 +34,7 @@ import android.widget.Button;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -58,7 +63,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -81,6 +86,9 @@ public class MainActivity extends AppCompatActivity {
     // 捕获间隔时间
     private final int CAPTURE_INTERVAL = 1000;
     private boolean isCapturing = false;
+
+    private int sizeWidth;
+    private int sizeHeight;
     private List<Mat> matList = new ArrayList<>();
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
@@ -232,25 +240,24 @@ public class MainActivity extends AppCompatActivity {
 
     // 打开相机的方法
     private void openCamera() {
+
         try {
             // 获取可用的相机ID，通常取第一个相机
             String cameraId = cameraManager.getCameraIdList()[0];
-            // 获取相机的特性信息
-            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
-            // 用于存储支持的JPEG图像尺寸的数组
-            Size[] jpegSizes = null;
-            // 获取相机支持的JPEG图像尺寸
-            jpegSizes = Objects.requireNonNull(characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)).getOutputSizes(ImageFormat.JPEG);
-            // 设置图像的默认宽度和高度
-            int width = 640;
-            int height = 360;
-            if (jpegSizes != null && jpegSizes.length > 0) {
-                // 如果支持JPEG尺寸，则使用第一个支持的尺寸
-                width = jpegSizes[0].getWidth();
-                height = jpegSizes[0].getHeight();
+            // 获取相机支持的JPEG 最优预览分辨率
+            Size size = null;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                size = pickPreviewResolution(cameraManager, cameraId);
+            } else {
+                size = new Size(640, 380);
             }
-            // 配置ImageReader以接收相机图像
-            configureImageReader(width, height);
+
+            // 设置图像的默认宽度和高度
+            sizeWidth = size.getWidth();
+            sizeHeight = size.getHeight();
+
+            // 配置ImageReader以接收相机图像 640 * 360
+            configureImageReader(sizeHeight, sizeWidth);
             // 检查相机权限是否已授予
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 // 打开相机，传入相机ID和相机状态回调
@@ -306,7 +313,8 @@ public class MainActivity extends AppCompatActivity {
         ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
         Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
         // 调整图像尺寸（可选）
-        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 360);
+//        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 360);
+        org.opencv.core.Size newSize = new org.opencv.core.Size(sizeWidth, sizeHeight);
         Imgproc.resize(imageMat, imageMat, newSize);
         return imageMat;
     }
@@ -371,8 +379,10 @@ public class MainActivity extends AppCompatActivity {
             SurfaceTexture texture = textureView.getSurfaceTexture();
             // 断言 SurfaceTexture 不为空，否则抛出异常
             assert texture != null;
-            // 设置默认的缓冲区大小为 640x480
-            texture.setDefaultBufferSize(640, 360);
+
+            // 界面预览尺寸 设置默认的缓冲区大小为 640x480
+            texture.setDefaultBufferSize(sizeWidth, sizeHeight);
+
             // 创建用于相机预览的 Surface
             Surface surface = new Surface(texture);
 
@@ -405,6 +415,87 @@ public class MainActivity extends AppCompatActivity {
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * 设备最优预览分辨率
+     * @param manager
+     * @param cameraId
+     * @return Size 最优分辨率
+     * @throws CameraAccessException
+     */
+    @RequiresApi(api = Build.VERSION_CODES.S)
+    private Size pickPreviewResolution(CameraManager manager, String cameraId) throws CameraAccessException {
+
+        // 0 后置摄像头
+        CameraExtensionCharacteristics extensionCharacteristics = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            extensionCharacteristics = cameraManager.getCameraExtensionCharacteristics(cameraId);
+        }
+        int currentExtension = CameraExtensionCharacteristics.EXTENSION_AUTOMATIC;
+
+        CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+        StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        assert map != null;
+        Size[] textureSizes = map.getOutputSizes(ImageFormat.JPEG);
+
+        Point displaySize = new Point();
+        DisplayMetrics displayMetrics = this.getResources().getDisplayMetrics();
+        displaySize.x = displayMetrics.widthPixels;
+        displaySize.y = displayMetrics.heightPixels;
+
+        if (displaySize.x < displaySize.y) {
+            displaySize.x = displayMetrics.heightPixels;
+            displaySize.y = displayMetrics.widthPixels;
+        }
+
+        float displayArRatio = (float) ((float) displaySize.x / displaySize.y);
+
+        float targetAspectRatio = 16f / 9f; // 16:9的宽高比
+        ArrayList<Size> previewSizes = new ArrayList<>();
+//        for (Size sz : textureSizes) {
+        for (int i = textureSizes.length - 1; i >= 0; i--) {
+            Size sz = textureSizes[i];
+            float arRatio = (float) sz.getWidth() / sz.getHeight();
+//            if (Math.abs(arRatio - displayArRatio) <= 0.2f && Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
+            if ( Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
+                previewSizes.add(sz);
+            }
+        }
+
+
+        Size[] extensionSizes = new Size[0];
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            extensionSizes = extensionCharacteristics.getExtensionSupportedSizes(currentExtension, SurfaceTexture.class).toArray(new Size[0]);
+        }
+
+        if (extensionSizes.length == 0) {
+            Toast.makeText(this, "Invalid preview extension sizes!", Toast.LENGTH_SHORT).show();
+            this.finish();
+            return null; // or throw an exception depending on your logic
+        }
+
+        Size previewSize = extensionSizes[0];
+        List<Size> supportedPreviewSizes = null;
+        supportedPreviewSizes = previewSizes.stream()
+                .distinct()
+                .filter(Arrays.asList(extensionSizes)::contains)
+                .collect(Collectors.toList());
+
+        if (!supportedPreviewSizes.isEmpty()) {
+            int currentDistance = Integer.MAX_VALUE;
+            for (Size sz : supportedPreviewSizes) {
+                int distance = (int) Math.abs(sz.getWidth() * sz.getHeight() - displaySize.x * displaySize.y);
+                if (currentDistance > distance) {
+                    currentDistance = distance;
+                    previewSize = sz;
+                }
+            }
+        } else {
+            Log.w(TAG, "No overlap between supported camera and extensions preview sizes using first available!");
+        }
+
+        return previewSize;
     }
 
 
