@@ -2,6 +2,7 @@ package com.example.myapplication;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -101,14 +102,16 @@ public class MainActivity extends AppCompatActivity {
     private final Handler handler = new Handler();
 
     private void executeMethod() {
-        // 捕获
-        takePicture();
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                executeMethod(); // 递归调用方法，实现无限执行
-            }
-        }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
+        if(isCapturing) {
+            // 捕获
+            takePicture();
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    executeMethod(); // 递归调用方法，实现无限执行
+                }
+            }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
+        }
     }
 
     private void startCapture() {
@@ -124,6 +127,7 @@ public class MainActivity extends AppCompatActivity {
         isCapturing = false;
     }
 
+    private ProgressDialog progressDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -138,6 +142,13 @@ public class MainActivity extends AppCompatActivity {
         // 初始化界面元素
         textureView = findViewById(R.id.textureView);
         captureButton = findViewById(R.id.captureButton);
+
+        progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("正在拼接图像，请稍候...");
+        progressDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER); // 或者使用 ProgressDialog.STYLE_HORIZONTAL
+        progressDialog.setCancelable(false); // 防止用户取消
+
+
         // 设置按钮的点击监听器，当用户点击按钮时，调用 takePicture 方法拍摄照片
         captureButton.setOnClickListener(new View.OnClickListener() {
             @SuppressLint("SetTextI18n")
@@ -148,6 +159,7 @@ public class MainActivity extends AppCompatActivity {
                 } else { // 如果已经在拍摄，则停止拍摄
                     stopCapture();
                     jointAndSave();
+                    captureButton.setText("开始拍摄");
                 }
             }
         });
@@ -159,43 +171,62 @@ public class MainActivity extends AppCompatActivity {
         startBackgroundThread();
     }
 
-    // 拼接全景图片
-    public void jointAndSave() {
-        List<Mat> mats = new ArrayList<>();
-        for (Mat mat : matList) {
-            mats.add(mat.clone());
-        }
-        boolean equals = mats.equals(matList);
 
-        for (Mat mat : mats) {
-            String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-            String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-            String fullPath = directory + File.separator + filename;
-            boolean success = Imgcodecs.imwrite(fullPath, mat);
-            MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-        }
+    private void jointAndSave() {
+        // 显示加载框
+        progressDialog.show();
 
-        Mat panorama = new Mat();
+        // 创建一个新线程来执行耗时操作，以避免阻塞主线程
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<Mat> mats = new ArrayList<>();
+                for (Mat mat : matList) {
+                    mats.add(mat.clone());
+                }
+                boolean equals = mats.equals(matList);
+
+                for (Mat mat : mats) {
+                    String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+                    String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+                    String fullPath = directory + File.separator + filename;
+                    boolean success = Imgcodecs.imwrite(fullPath, mat);
+                    MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+                }
+
+                Mat panorama = new Mat();
                 try {
-        panorama = stitchImagesRecursive(mats);
+                    panorama = stitchImagesRecursive(mats);
                 } catch (Exception e) {
                     e.printStackTrace();
                     showToast("全景拼接失败");
-                    captureButton.setText("开始拍摄");
+                    progressDialog.dismiss();
                     return;
                 }
 
-        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-        String fullPath = directory + File.separator + filename;
-        boolean success = Imgcodecs.imwrite(fullPath, panorama);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-        captureButton.setText("开始拍摄");
-        showToast("全景图已生成");
-        panorama.release();
-        for (Mat mat : matList) {
-            mat.release();
-        }
+                String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+                String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+                String fullPath = directory + File.separator + filename;
+                boolean success = Imgcodecs.imwrite(fullPath, panorama);
+                MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+                showToast("全景图已生成");
+                panorama.release();
+                for (Mat mat : matList) {
+                    mat.release();
+                }
+
+                // 操作完成后，隐藏加载框
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        progressDialog.dismiss();
+                    }
+                });
+            }
+        });
+
+        // 启动线程来执行耗时操作
+        thread.start();
     }
 
     // 启动后台线程
