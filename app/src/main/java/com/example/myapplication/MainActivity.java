@@ -2,8 +2,10 @@ package com.example.myapplication;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
@@ -40,6 +42,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.json.JSONObject;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.Core;
@@ -66,7 +69,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
 
     // 请求相机权限的常量
     private static final int REQUEST_CAMERA_PERMISSION = 200;
@@ -88,9 +91,11 @@ public class MainActivity extends AppCompatActivity {
     private final int CAPTURE_INTERVAL = 1000;
     private boolean isCapturing = false;
 
-    private int sizeWidth;
-    private int sizeHeight;
+    public int sizeWidth;
+    public int sizeHeight;
     private List<Mat> matList = new ArrayList<>();
+
+    private Mat panorama;
     // 相机捕获回调
     private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
@@ -143,12 +148,6 @@ public class MainActivity extends AppCompatActivity {
         textureView = findViewById(R.id.textureView);
         captureButton = findViewById(R.id.captureButton);
 
-        progressDialog = new ProgressDialog(this);
-        progressDialog.setMessage("正在拼接图像，请稍候...");
-        progressDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER); // 或者使用 ProgressDialog.STYLE_HORIZONTAL
-        progressDialog.setCancelable(false); // 防止用户取消
-
-
         // 设置按钮的点击监听器，当用户点击按钮时，调用 takePicture 方法拍摄照片
         captureButton.setOnClickListener(new View.OnClickListener() {
             @SuppressLint("SetTextI18n")
@@ -173,6 +172,10 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void jointAndSave() {
+        progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("图像生成中，请稍候...");
+        progressDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER); // 或者使用 ProgressDialog.STYLE_HORIZONTAL
+        progressDialog.setCancelable(false); // 防止用户取消
         // 显示加载框
         progressDialog.show();
 
@@ -184,17 +187,14 @@ public class MainActivity extends AppCompatActivity {
                 for (Mat mat : matList) {
                     mats.add(mat.clone());
                 }
-                boolean equals = mats.equals(matList);
 
-                for (Mat mat : mats) {
-                    String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-                    String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-                    String fullPath = directory + File.separator + filename;
-                    boolean success = Imgcodecs.imwrite(fullPath, mat);
-                    MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-                }
+                // 保存 捕获图片
+//                for (Mat mat : mats) {
+//                    save(mat, "捕获图片");
+//                }
+                // 保存全景图片
+                // save(panorama, "全景图片");
 
-                Mat panorama = new Mat();
                 try {
                     panorama = stitchImagesRecursive(mats);
                 } catch (Exception e) {
@@ -204,13 +204,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-                String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
-                String fullPath = directory + File.separator + filename;
-                boolean success = Imgcodecs.imwrite(fullPath, panorama);
-                MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
                 showToast("全景图已生成");
-                panorama.release();
                 for (Mat mat : matList) {
                     mat.release();
                 }
@@ -220,6 +214,18 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void run() {
                         progressDialog.dismiss();
+
+                        // 设置返回值并关闭当前 Activity
+                        Intent resultIntent = new Intent();
+                        try {
+                            resultIntent.putExtra("mat", matToBase64(panorama));
+                            resultIntent.putExtra("matWidth", panorama.width());
+                            resultIntent.putExtra("matHeight", panorama.height());
+                            setResult(Activity.RESULT_OK, resultIntent);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        finish();
                     }
                 });
             }
@@ -320,13 +326,12 @@ public class MainActivity extends AppCompatActivity {
                 // 获取最新可用的图像
                 if (image != null) {
                     String s = imageToBase64(image);
-                    Mat mat = base64ToMat(s);
+                    Mat mat = base64ToMat(s, sizeWidth, sizeHeight);
                     matList.add(mat);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
-                assert image != null;
                 image.close();
             }
         }
@@ -339,15 +344,21 @@ public class MainActivity extends AppCompatActivity {
         return Base64.encodeToString(bytes, Base64.DEFAULT);
     }
 
-    public Mat base64ToMat(String base64Image) throws IOException {
+    public Mat base64ToMat(String base64Image, int width, int height) throws IOException {
         byte[] imageBytes = Base64.decode(base64Image, Base64.DEFAULT);
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
         Mat imageMat = Imgcodecs.imdecode(new MatOfByte(imageBytes), Imgcodecs.IMREAD_COLOR);
         // 调整图像尺寸（可选）
 //        org.opencv.core.Size newSize = new org.opencv.core.Size(640, 360);
-        org.opencv.core.Size newSize = new org.opencv.core.Size(sizeWidth, sizeHeight);
+        org.opencv.core.Size newSize = new org.opencv.core.Size(width, height);
         Imgproc.resize(imageMat, imageMat, newSize);
         return imageMat;
+    }
+
+    public String matToBase64(Mat mat) throws IOException {
+        MatOfByte matOfByte = new MatOfByte();
+        Imgcodecs.imencode(".jpg", mat, matOfByte);
+        byte[] byteArray = matOfByte.toArray();
+        return Base64.encodeToString(byteArray, Base64.DEFAULT);
     }
 
     private void setupCaptureRequest() {
@@ -408,8 +419,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             // 获取 TextureView 的 SurfaceTexture
             SurfaceTexture texture = textureView.getSurfaceTexture();
-            // 断言 SurfaceTexture 不为空，否则抛出异常
-            assert texture != null;
 
             // 界面预览尺寸 设置默认的缓冲区大小为 640x480
             texture.setDefaultBufferSize(sizeWidth, sizeHeight);
@@ -467,7 +476,6 @@ public class MainActivity extends AppCompatActivity {
 
         CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
         StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-        assert map != null;
         Size[] textureSizes = map.getOutputSizes(ImageFormat.JPEG);
 
         Point displaySize = new Point();
@@ -762,6 +770,16 @@ public class MainActivity extends AppCompatActivity {
                 dst.put(i, j, pixel);
             }
         }
+    }
+
+    public boolean save(Mat mat, String name) {
+        // 保存全景图片
+        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+        String filename = "panorama_" + name + "-" + System.currentTimeMillis() + ".jpg";
+        String fullPath = directory + File.separator + filename;
+        boolean success = Imgcodecs.imwrite(fullPath, mat);
+        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
+        return success;
     }
 
 }
