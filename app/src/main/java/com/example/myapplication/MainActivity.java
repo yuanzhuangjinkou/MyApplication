@@ -3,6 +3,7 @@ package com.example.myapplication;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -36,6 +37,8 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
@@ -70,6 +73,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Timer;
 import java.util.stream.Collectors;
 
@@ -455,11 +459,7 @@ public class MainActivity extends Activity {
             captureRequestBuilder.addTarget(imageReader.getSurface());
             // 自动对焦模式（Auto-Focus Mode）：设置为连续自动对焦模式
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            // 图像捕获模式（Capture Mode）：设置为连续图像捕获模式
-            captureRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_PREVIEW);
-            // 自动曝光模式（Auto-Exposure Mode）：设置为连续自动曝光模式
-            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
-        } catch (Exception e) {
+        } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
@@ -715,8 +715,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException {
-        if (mats.size() == 0)
+    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException{
+        if(mats.size() == 0)
             return new Mat();
         if (mats.size() == 1) {
             return mats.get(0);
@@ -733,7 +733,7 @@ public class MainActivity extends Activity {
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) throws RuntimeException {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight)  throws RuntimeException {
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
@@ -861,16 +861,6 @@ public class MainActivity extends Activity {
                 dst.put(i, j, pixel);
             }
         }
-    }
-
-    public boolean save(Mat mat, String name) {
-        // 保存全景图片
-        String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
-        String filename = "panorama_" + name + "-" + System.currentTimeMillis() + ".jpg";
-        String fullPath = directory + File.separator + filename;
-        boolean success = Imgcodecs.imwrite(fullPath, mat);
-        MediaScannerConnection.scanFile(MainActivity.this, new String[]{fullPath}, null, null);
-        return success;
     }
 
 }
