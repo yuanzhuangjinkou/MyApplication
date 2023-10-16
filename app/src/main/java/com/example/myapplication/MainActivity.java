@@ -7,7 +7,12 @@ import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -38,12 +43,11 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import org.json.JSONObject;
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.Core;
 import org.opencv.core.DMatch;
@@ -60,7 +64,6 @@ import org.opencv.features2d.SIFT;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -93,46 +96,10 @@ public class MainActivity extends Activity {
 
     public int sizeWidth;
     public int sizeHeight;
-    private List<Mat> matList = new ArrayList<>();
-
-    private Mat panorama;
-    // 相机捕获回调
-    private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
-        @Override
-        public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-            super.onCaptureCompleted(session, request, result);
-        }
-    };
-
-    private final Handler handler = new Handler();
-
-    private void executeMethod() {
-        if(isCapturing) {
-            // 捕获
-            takePicture();
-            handler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    executeMethod(); // 递归调用方法，实现无限执行
-                }
-            }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
-        }
-    }
-
-    private void startCapture() {
-        captureButton.setText("停止拍摄");
-        isCapturing = true;
-        matList.clear();
-        setupCaptureRequest();
-        executeMethod();
-    }
-
-    private void stopCapture() {
-
-        isCapturing = false;
-    }
+    private final List<Mat> matList = new ArrayList<>();
 
     private ProgressDialog progressDialog;
+    private Mat panorama;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -170,6 +137,43 @@ public class MainActivity extends Activity {
         startBackgroundThread();
     }
 
+    // 相机捕获回调
+    private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
+        @Override
+        public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+            super.onCaptureCompleted(session, request, result);
+        }
+    };
+
+    private final Handler handler = new Handler();
+
+    private void executeMethod() {
+        if(isCapturing) {
+            // 捕获
+            takePicture();
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    executeMethod(); // 递归调用方法，实现无限执行
+                }
+            }, CAPTURE_INTERVAL); // 设置延迟时间为1秒（1000毫秒）
+        }
+    }
+
+    private void startCapture() {
+        captureButton.setText("停止拍摄");
+        isCapturing = true;
+        matList.clear();
+        setupCaptureRequest();
+        executeMethod();
+    }
+
+    private void stopCapture() {
+
+        isCapturing = false;
+    }
+
+
 
     private void jointAndSave() {
         progressDialog = new ProgressDialog(this);
@@ -183,20 +187,19 @@ public class MainActivity extends Activity {
         Thread thread = new Thread(new Runnable() {
             @Override
             public void run() {
-                List<Mat> mats = new ArrayList<>();
-                for (Mat mat : matList) {
-                    mats.add(mat.clone());
-                }
+//                List<Mat> mats = new ArrayList<>();
+//                for (Mat mat : matList) {
+//                    mats.add(mat.clone());
+//                }
 
                 // 保存 捕获图片
-//                for (Mat mat : mats) {
-//                    save(mat, "捕获图片");
-//                }
-                // 保存全景图片
-                // save(panorama, "全景图片");
+                for (Mat mat : matList) {
+                    save(mat, "捕获图片");
+                }
+
 
                 try {
-                    panorama = stitchImagesRecursive(mats);
+                    panorama = stitchImagesRecursive(matList);
                 } catch (Exception e) {
                     e.printStackTrace();
                     showToast("全景拼接失败");
@@ -205,6 +208,8 @@ public class MainActivity extends Activity {
                 }
 
                 showToast("全景图已生成");
+                // 保存全景图片
+                save(panorama, "全景图片");
                 for (Mat mat : matList) {
                     mat.release();
                 }
@@ -266,10 +271,6 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                // 使用Toast类创建一个短暂的消息提示
-                // MainActivity.this 表示在当前活动中显示Toast
-                // text 是要显示的消息文本
-                // Toast.LENGTH_SHORT 表示消息显示的时长（短暂）
                 Toast.makeText(MainActivity.this, text, Toast.LENGTH_SHORT).show();
             }
         });
@@ -294,7 +295,7 @@ public class MainActivity extends Activity {
             sizeHeight = size.getHeight();
 
             // 配置ImageReader以接收相机图像 640 * 360
-            configureImageReader(sizeHeight, sizeWidth);
+            configureImageReader(sizeWidth, sizeHeight);
             // 检查相机权限是否已授予
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 // 打开相机，传入相机ID和相机状态回调
@@ -323,12 +324,17 @@ public class MainActivity extends Activity {
             Image image = null;
             try {
                 image = reader.acquireLatestImage();
-                // 获取最新可用的图像
-                if (image != null) {
-                    String s = imageToBase64(image);
-                    Mat mat = base64ToMat(s, sizeWidth, sizeHeight);
-                    matList.add(mat);
-                }
+
+                String directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString();
+                String filename = "panorama_" + "-" + System.currentTimeMillis() + ".jpg";
+                String fullPath = directory + File.separator + filename;
+                Bitmap bitmap = saveRotatedImage(image, fullPath);
+
+                Mat mat = new Mat();
+                Utils.bitmapToMat(bitmap, mat, true);
+                // OpenCV通常使用BGR（蓝绿红） Bitmap通常使用RGB（红绿蓝）
+                Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGB2BGR);
+                matList.add(mat);
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
@@ -336,6 +342,91 @@ public class MainActivity extends Activity {
             }
         }
     };
+
+    private Bitmap saveRotatedImage(Image image, String filePath) throws CameraAccessException {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+
+        Bitmap originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        int rotation = getRotationFromImage(image);
+
+        Matrix matrix = new Matrix();
+        matrix.postRotate(90);
+
+        Bitmap rotatedBitmap = Bitmap.createBitmap(originalBitmap, 0, 0, originalBitmap.getWidth(), originalBitmap.getHeight(), matrix, true);
+
+        return rotatedBitmap;
+//        File file = new File(filePath);
+//        try {
+//            FileOutputStream fos = new FileOutputStream(file);
+//            rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
+//            fos.close();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        return null;
+    }
+
+    private int getRotationFromImage(Image image) throws CameraAccessException {
+        int rotation = 0;
+        int rotationDegrees;
+        int rotationCompensation;
+        int currentOrientation = getCurrentDeviceOrientation();
+        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraManager.getCameraIdList()[0]);
+        Integer sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+
+
+        if (sensorOrientation != null) {
+            switch (sensorOrientation) {
+                case 90:
+                    rotationCompensation = (currentOrientation + 45) / 90 * 90;
+                    rotation = (sensorOrientation + rotationCompensation) % 360;
+                    break;
+                case 270:
+                    rotationCompensation = (currentOrientation + 45) / 90 * 90;
+                    rotation = (sensorOrientation - rotationCompensation + 360) % 360;
+                    break;
+            }
+        }
+        return rotation;
+    }
+
+    private int getCurrentDeviceOrientation() {
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        int orientation;
+        Resources resources = getResources();
+        Configuration config = resources.getConfiguration();
+        int rotationCompensation = 0;
+
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                rotationCompensation = 0;
+                break;
+            case Surface.ROTATION_90:
+                rotationCompensation = 90;
+                break;
+            case Surface.ROTATION_180:
+                rotationCompensation = 180;
+                break;
+            case Surface.ROTATION_270:
+                rotationCompensation = 270;
+                break;
+        }
+
+        if ("portrait".equals(config.orientation)) {
+            orientation = (rotationCompensation + 0) % 360;
+        } else if ("landscape".equals(config.orientation)) {
+            orientation = (rotationCompensation + 90) % 360;
+        } else if ("reverse_portrait".equals(config.orientation)) {
+            orientation = (rotationCompensation + 180) % 360;
+        } else {
+            orientation = (rotationCompensation + 270) % 360;
+        }
+
+        return orientation;
+    }
+
 
     public String imageToBase64(Image image) {
         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
@@ -367,7 +458,12 @@ public class MainActivity extends Activity {
         }
         try {
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90);
+
+//            // 90
+//            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraManager.getCameraIdList()[0]);
+//            Integer integer = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+//
+//            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, integer);
             captureRequestBuilder.addTarget(imageReader.getSurface());
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
         } catch (CameraAccessException e) {
