@@ -192,14 +192,14 @@ public class MainActivity extends Activity {
 //                for (Mat mat : matList) {
 //                    save(mat, "捕获图片");
 //                }
-                try {
+//                try {
                     panorama = stitchImagesRecursive(matList);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    showToast("全景拼接失败");
-                    progressDialog.dismiss();
-                    return;
-                }
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                    showToast("全景拼接失败");
+//                    progressDialog.dismiss();
+//                    return;
+//                }
 
                 showToast("全景图已生成");
                 // 保存全景图片
@@ -579,15 +579,11 @@ public class MainActivity extends Activity {
             displaySize.y = displayMetrics.widthPixels;
         }
 
-        float displayArRatio = (float) ((float) displaySize.x / displaySize.y);
-
         float targetAspectRatio = 16f / 9f; // 16:9的宽高比
         ArrayList<Size> previewSizes = new ArrayList<>();
-//        for (Size sz : textureSizes) {
         for (int i = textureSizes.length - 1; i >= 0; i--) {
             Size sz = textureSizes[i];
             float arRatio = (float) sz.getWidth() / sz.getHeight();
-//            if (Math.abs(arRatio - displayArRatio) <= 0.2f && Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
             if (Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
                 previewSizes.add(sz);
             }
@@ -715,7 +711,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException {
+    private Mat stitchImagesRecursive(List<Mat> mats) {
         if (mats.size() == 0)
             return new Mat();
         if (mats.size() == 1) {
@@ -733,10 +729,10 @@ public class MainActivity extends Activity {
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) throws RuntimeException {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) {
 
         // 检测SIFT关键点和描述子
-        SIFT sift = SIFT.create();
+        SIFT sift = SIFT.create(1000);
         MatOfKeyPoint keypointsLeft = new MatOfKeyPoint();
         MatOfKeyPoint keypointsRight = new MatOfKeyPoint();
         Mat descriptorsLeft = new Mat();
@@ -803,24 +799,18 @@ public class MainActivity extends Activity {
         Mat H = Calib3d.findHomography(dstPoints, srcPoints, Calib3d.RANSAC);
         //对image_right进行透视变换
         Imgproc.warpPerspective(imgRight, imgResult, H, new org.opencv.core.Size(imgRight.cols() + imgLeft.cols(), imgRight.rows()));
+        Mat imageTransform1 = imgResult.clone();
         //将image_left拷贝到透视变换后的图片上，完成图像拼接
         imgLeft.copyTo(imgResult.submat(new Rect(0, 0, imgLeft.cols(), imgLeft.rows())));
 
+
+        ImageStitching.calcCorners(H, imgRight);
+        ImageStitching.optimizeSeam(imgLeft, imageTransform1, imgResult);
         // 优化接缝
-        int overlapWidth = imgLeft.cols() + imgRight.cols() - imgResult.cols(); // 计算重叠的最大可能宽度
-        int start = imgLeft.cols() - overlapWidth;
-        int end = imgLeft.cols();
-        double minDiff = Double.MAX_VALUE;
-        for (int i = start; i < end; i++) {
-            Mat leftEdge = imgLeft.colRange(i, i + 1);
-            Mat rightEdgeInResult = imgResult.colRange(i, i + 1);
-            double diff = Core.norm(leftEdge, rightEdgeInResult, Core.NORM_L1);
-            if (diff < minDiff) {
-                minDiff = diff;
-                start = i;
-            }
-        }
-        optimizeSeam(imgLeft, imgResult.colRange(start, end), imgResult);
+
+        save(imgLeft, "left");
+        save(imageTransform1, "imageTransform1");
+        save(imgResult, "imgResult");
 
         // 拿到黑色区域范围
         Mat grayImage = new Mat();
@@ -842,7 +832,7 @@ public class MainActivity extends Activity {
     }
 
     public static void optimizeSeam(Mat img1, Mat img2, Mat dst) {
-        int start = Math.max(0, img1.cols() - img2.cols());
+        int start = img1.cols();
         int end = img1.cols();
         int h = img1.rows();
 
