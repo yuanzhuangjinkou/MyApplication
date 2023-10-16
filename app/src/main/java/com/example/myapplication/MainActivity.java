@@ -70,6 +70,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Timer;
 import java.util.stream.Collectors;
 
 public class MainActivity extends Activity {
@@ -148,7 +149,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler();
 
     private void executeMethod() {
-        if(isCapturing) {
+        if (isCapturing) {
             // 捕获
             takePicture();
             handler.postDelayed(new Runnable() {
@@ -173,8 +174,6 @@ public class MainActivity extends Activity {
         isCapturing = false;
     }
 
-
-
     private void jointAndSave() {
         progressDialog = new ProgressDialog(this);
         progressDialog.setMessage("图像生成中，请稍候...");
@@ -187,15 +186,10 @@ public class MainActivity extends Activity {
         Thread thread = new Thread(new Runnable() {
             @Override
             public void run() {
-//                List<Mat> mats = new ArrayList<>();
-//                for (Mat mat : matList) {
-//                    mats.add(mat.clone());
-//                }
-
                 // 保存 捕获图片
-                for (Mat mat : matList) {
-                    save(mat, "捕获图片");
-                }
+//                for (Mat mat : matList) {
+//                    save(mat, "捕获图片");
+//                }
 
 
                 try {
@@ -209,7 +203,7 @@ public class MainActivity extends Activity {
 
                 showToast("全景图已生成");
                 // 保存全景图片
-                save(panorama, "全景图片");
+                // save(panorama, "全景图片");
                 for (Mat mat : matList) {
                     mat.release();
                 }
@@ -458,15 +452,14 @@ public class MainActivity extends Activity {
         }
         try {
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-
-//            // 90
-//            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraManager.getCameraIdList()[0]);
-//            Integer integer = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-//
-//            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, integer);
             captureRequestBuilder.addTarget(imageReader.getSurface());
+            // 自动对焦模式（Auto-Focus Mode）：设置为连续自动对焦模式
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-        } catch (CameraAccessException e) {
+            // 图像捕获模式（Capture Mode）：设置为连续图像捕获模式
+            captureRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_PREVIEW);
+            // 自动曝光模式（Auto-Exposure Mode）：设置为连续自动曝光模式
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -541,6 +534,7 @@ public class MainActivity extends Activity {
                     // 更新相机预览
                     updatePreview();
                 }
+
                 @Override
                 // 当会话配置失败时调用
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
@@ -555,6 +549,7 @@ public class MainActivity extends Activity {
 
     /**
      * 设备最优预览分辨率
+     *
      * @param manager
      * @param cameraId
      * @return Size 最优分辨率
@@ -593,7 +588,7 @@ public class MainActivity extends Activity {
             Size sz = textureSizes[i];
             float arRatio = (float) sz.getWidth() / sz.getHeight();
 //            if (Math.abs(arRatio - displayArRatio) <= 0.2f && Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
-            if ( Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
+            if (Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
                 previewSizes.add(sz);
             }
         }
@@ -720,8 +715,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException{
-        if(mats.size() == 0)
+    private Mat stitchImagesRecursive(List<Mat> mats) throws RuntimeException {
+        if (mats.size() == 0)
             return new Mat();
         if (mats.size() == 1) {
             return mats.get(0);
@@ -738,7 +733,7 @@ public class MainActivity extends Activity {
     }
 
     // 图像拼接函数
-    public Mat stitchImagesT(Mat imgLeft, Mat imgRight)  throws RuntimeException {
+    public Mat stitchImagesT(Mat imgLeft, Mat imgRight) throws RuntimeException {
 
         // 检测SIFT关键点和描述子
         SIFT sift = SIFT.create();
