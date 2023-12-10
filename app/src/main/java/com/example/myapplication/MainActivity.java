@@ -66,19 +66,17 @@ import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Timer;
 import java.util.stream.Collectors;
 
 public class MainActivity extends Activity {
 
     // 请求相机权限的常量
-    private static final int REQUEST_CAMERA_PERMISSION = 200;
+    private static final int REQUEST_CAMERA_PERMISSION = 101;
     // 日志标签
     private static final String TAG = "tag";
     // 界面元素
@@ -289,8 +287,10 @@ public class MainActivity extends Activity {
             Size size = null;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 size = pickPreviewResolution(cameraManager, cameraId);
+                if(size == null)
+                    size = new Size(640, 360);
             } else {
-                size = new Size(640, 380);
+                size = new Size(640, 360);
             }
 
             // 设置图像的默认宽度和高度
@@ -301,14 +301,30 @@ public class MainActivity extends Activity {
             configureImageReader(sizeWidth, sizeHeight);
             // 检查相机权限是否已授予
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                // 打开相机，传入相机ID和相机状态回调
+                Log.i("tag","已申请权限");
                 cameraManager.openCamera(cameraId, stateCallback, null);
+                // 打开相机，传入相机ID和相机状态回调
             } else {
                 // 如果没有相机权限，则请求相机权限
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+//                cameraManager.openCamera("0", stateCallback, null);
             }
+
         } catch (CameraAccessException e) {
             e.printStackTrace();
+        }
+    }
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // 权限被授予，执行相机相关操作
+                Log.d("TAG", "onRequestPermissionsResult: 已授权");
+            } else {
+                // 权限被拒绝，向用户显示相关信息
+                Log.d("tag", "onRequestPermissionsResult: 请求权限被拒绝");
+            }
         }
     }
 
@@ -557,11 +573,9 @@ public class MainActivity extends Activity {
      */
     @RequiresApi(api = Build.VERSION_CODES.S)
     private Size pickPreviewResolution(CameraManager manager, String cameraId) throws CameraAccessException {
-
-        // 0 后置摄像头
         CameraExtensionCharacteristics extensionCharacteristics = null;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            extensionCharacteristics = cameraManager.getCameraExtensionCharacteristics(cameraId);
+            extensionCharacteristics = manager.getCameraExtensionCharacteristics(cameraId);
         }
         int currentExtension = CameraExtensionCharacteristics.EXTENSION_AUTOMATIC;
 
@@ -584,31 +598,29 @@ public class MainActivity extends Activity {
         for (int i = textureSizes.length - 1; i >= 0; i--) {
             Size sz = textureSizes[i];
             float arRatio = (float) sz.getWidth() / sz.getHeight();
-            if (Math.abs(arRatio - targetAspectRatio) < 0.01f) { // 添加了16:9的检查
+            if (Math.abs(arRatio - targetAspectRatio) < 0.01f) {
                 previewSizes.add(sz);
             }
         }
 
+        List<Integer> supportedExtensions = extensionCharacteristics.getSupportedExtensions();
+        boolean isExtensionSupported = supportedExtensions.contains(currentExtension);
 
         Size[] extensionSizes = new Size[0];
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            extensionSizes = extensionCharacteristics.getExtensionSupportedSizes(currentExtension, SurfaceTexture.class).toArray(new Size[0]);
+        if (isExtensionSupported) {
+            List<Size> extensionSupportedSizes = extensionCharacteristics.getExtensionSupportedSizes(currentExtension, SurfaceTexture.class);
+            extensionSizes = extensionSupportedSizes.toArray(new Size[0]);
         }
 
-        if (extensionSizes.length == 0) {
-            Toast.makeText(this, "Invalid preview extension sizes!", Toast.LENGTH_SHORT).show();
-            this.finish();
-            return null; // or throw an exception depending on your logic
-        }
+        // 使用过滤后的尺寸列表进行预览尺寸的选择
+        Size previewSize = null;
+        if (isExtensionSupported) {
+            List<Size> supportedPreviewSizes = previewSizes.stream()
+                    .distinct()
+                    .filter(Arrays.asList(extensionSizes)::contains)
+                    .collect(Collectors.toList());
 
-        Size previewSize = extensionSizes[0];
-        List<Size> supportedPreviewSizes = null;
-        supportedPreviewSizes = previewSizes.stream()
-                .distinct()
-                .filter(Arrays.asList(extensionSizes)::contains)
-                .collect(Collectors.toList());
-
-        if (!supportedPreviewSizes.isEmpty()) {
+            // 从支持的预览尺寸中选择最接近显示尺寸的尺寸
             int currentDistance = Integer.MAX_VALUE;
             for (Size sz : supportedPreviewSizes) {
                 int distance = (int) Math.abs(sz.getWidth() * sz.getHeight() - displaySize.x * displaySize.y);
@@ -617,12 +629,23 @@ public class MainActivity extends Activity {
                     previewSize = sz;
                 }
             }
-        } else {
-            Log.w(TAG, "No overlap between supported camera and extensions preview sizes using first available!");
+        }
+
+        // 如果扩展不支持或没有找到合适的扩展尺寸，从原始尺寸中选择
+        if (previewSize == null) {
+            int currentDistance = Integer.MAX_VALUE;
+            for (Size sz : previewSizes) {
+                int distance = (int) Math.abs(sz.getWidth() * sz.getHeight() - displaySize.x * displaySize.y);
+                if (currentDistance > distance) {
+                    currentDistance = distance;
+                    previewSize = sz;
+                }
+            }
         }
 
         return previewSize;
     }
+
 
 
     // 更新相机预览
